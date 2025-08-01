@@ -1,18 +1,57 @@
-import sys
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QLabel, QTextEdit, QPushButton,
+    QWidget, QLabel, QTextEdit, QPushButton,
     QVBoxLayout, QHBoxLayout, QComboBox, QScrollArea, QCheckBox,
     QFrame, QSizePolicy
 )
-from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect
+from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, pyqtSignal, QObject
 from PyQt5.QtGui import QFont, QPainter, QLinearGradient, QColor
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
 import networkx as nx
 from matplotlib.colors import LinearSegmentedColormap
-
+from StoryObject import StoryObject
 import settings
+import ai
+import asyncio
+import json
+import requests
 
+class StoryGenerator(QObject):
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(self):
+        super().__init__()
+
+    async def generate_async(self, story_object):
+        try:
+            response = await ai.get(story_object)
+            if response:
+                # First, parse the full response as JSON
+                try:
+                    response_data = json.loads(response)
+                    
+                    # Extract the story text from the nested structure
+                    story_text = response_data.get('result', {}).get('alternatives', [{}])[0].get('message', {}).get('text', '')
+                    
+                    # Remove Markdown code blocks if present
+                    if story_text.startswith('```') and story_text.endswith('```'):
+                        story_text = story_text[3:-3].strip()
+                        if story_text.startswith('json'):
+                            story_text = story_text[4:].strip()
+                    
+                    # Parse the actual story JSON
+                    story_data = json.loads(story_text)
+                    self.finished.emit(story_data)
+                    
+                except json.JSONDecodeError as e:
+                    self.error.emit(f"JSON decode error: {str(e)}")
+                except Exception as e:
+                    self.error.emit(f"Error processing response: {str(e)}")
+            else:
+                self.error.emit("Empty response from AI")
+        except Exception as e:
+            self.error.emit(f"Request failed: {str(e)}")
 
 class GradientButton(QPushButton):
     def __init__(self, text, parent=None):
@@ -230,7 +269,7 @@ class MainWindow(QWidget):
         self.adult_checkbox.setCursor(Qt.PointingHandCursor)
         
         self.generate_btn = GradientButton("Сгенерировать")
-        self.generate_btn.clicked.connect(self.generate_graph)
+        self.generate_btn.clicked.connect(self.generate_story)
 
         for widget in [
             self.desc_input, self.heroes_input, self.genre_input,
@@ -329,7 +368,7 @@ class MainWindow(QWidget):
         self.left_container.setMaximumWidth(left_width)
         super().resizeEvent(event)
 
-    def generate_graph(self):
+    def generate_story(self):
         desc = self.desc_input.edit.toPlainText().strip()
         heroes_text = self.heroes_input.edit.toPlainText().strip()
         heroes = [h.strip() for h in heroes_text.split(',') if h.strip()]
@@ -340,26 +379,38 @@ class MainWindow(QWidget):
         conflict = self.conflict_combo.combo.currentText()
         is_adult = self.adult_checkbox.isChecked()
 
-        nodes = []
-        if desc:
-            nodes.append(desc)
-        if genre:
-            nodes.append(genre)
-        nodes.extend([narrative_style, mood, theme, conflict])
-        nodes.extend(heroes)
-        
-        edges = []
-        if len(nodes) > 1:
-            if desc:
-                central_node = desc
-            else:
-                central_node = nodes[0]
-                
-            for node in nodes:
-                if node != central_node:
-                    edges.append((central_node, node))
+        story_object = StoryObject(
+            description=desc,
+            genre=genre,
+            heroes=heroes,
+            narrative_style=narrative_style,
+            mood=mood,
+            theme=theme,
+            conflict=conflict,
+            adult=is_adult
+        )
 
-        self.graph_canvas.update_graph(nodes, edges)
+        self.generator = StoryGenerator()
+        self.generator.finished.connect(self.handle_story_generated)
+        self.generator.error.connect(self.handle_generation_error)
+        
+        # Запускаем асинхронную задачу
+        self.generate_btn.setEnabled(False)
+        self.generate_btn.setText("Генерация...")
+        
+        loop = asyncio.get_event_loop()
+        loop.create_task(self.generator.generate_async(story_object))
+
+    def handle_story_generated(self, result):
+        print("Сгенерированная история:")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        self.generate_btn.setEnabled(True)
+        self.generate_btn.setText("Сгенерировать")
+
+    def handle_generation_error(self, error_msg):
+        print(f"Ошибка генерации: {error_msg}")
+        self.generate_btn.setEnabled(True)
+        self.generate_btn.setText("Сгенерировать")
 
     def dark_theme_stylesheet(self):
         return """

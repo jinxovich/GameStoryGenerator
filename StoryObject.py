@@ -18,3 +18,26 @@ class StoryObject:
         self.theme = theme
         self.conflict = conflict
         self.adult = adult
+
+
+def create_story_object(self):
+    desc = self.desc_input.edit.toPlainText().strip()
+    heroes_text = self.heroes_input.edit.toPlainText().strip()
+    heroes = [h.strip() for h in heroes_text.split(',') if h.strip()]
+    genre = self.genre_input.edit.toPlainText().strip()
+    narrative_style = self.narrative_style_combo.combo.currentText()
+    mood = self.mood_combo.combo.currentText()
+    theme = self.theme_combo.combo.currentText()
+    conflict = self.conflict_combo.combo.currentText()
+    is_adult = self.adult_checkbox.isChecked()
+
+    return StoryObject(
+        description=desc,
+        genre=genre,
+        heroes=heroes,
+        narrative_style=narrative_style,
+        mood=mood,
+        theme=theme,
+        conflict=conflict,
+        adult=is_adult
+    )
