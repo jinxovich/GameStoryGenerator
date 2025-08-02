@@ -1,6 +1,8 @@
-import requests
+import aiohttp
+import asyncio
 from config import YANDEX_ID_KEY, YANDEX_API_KEY
 import json
+import re
 
 async def get(story_object) -> dict:
     try:
@@ -16,7 +18,7 @@ async def get(story_object) -> dict:
                     "role": "system",
                     "text": """Ты профессиональный сценарист, специализирующийся на интерактивных историях и квестах. 
                     Сгенерируй увлекательный нелинейный сюжет на основе предоставленных параметров. 
-                    Результат должен быть в формате JSON с четкой структурой ветвления."""
+                    Результат должен быть ТОЛЬКО в формате JSON без дополнительных объяснений или форматирования markdown."""
                 },
                 {
                     "role": "user",
@@ -30,21 +32,7 @@ async def get(story_object) -> dict:
                     Основной конфликт: {story_object.conflict}
                     {'Контент для взрослых: Да' if story_object.adult else ''}
                     
-                    Требования к структуре:
-                    1. Минимум 5 ключевых сцен (включая вступление и финал)
-                    2. Как минимум одна полноценная развилка с выбором, ведущим к разным последствиям
-                    3. Глубина хотя бы одной побочной ветви - не менее 3 последовательных сцен
-                    4. Каждая сцена должна содержать:
-                    - id (уникальный идентификатор)
-                    - title (название сцены)
-                    - description (описание происходящего)
-                    - characters (участвующие персонажи)
-                    - choices (массив вариантов выбора, если есть)
-                        - text (текст выбора)
-                        - next_scene_id (id следующей сцены)
-                    - is_ending (флаг финальной сцены)
-                    
-                    Пример структуры JSON:
+                    Верни ТОЛЬКО валидный JSON без дополнительного текста или markdown разметки:
                     {{
                         "title": "Название истории",
                         "description": "Краткое описание сюжета",
@@ -54,8 +42,8 @@ async def get(story_object) -> dict:
                             {{
                                 "id": "scene1",
                                 "title": "Начало пути",
-                                "description": "...",
-                                "characters": ["..."],
+                                "description": "Подробное описание сцены...",
+                                "characters": ["имя_персонажа"],
                                 "choices": [
                                     {{
                                         "text": "Выбрать путь через лес",
@@ -67,23 +55,16 @@ async def get(story_object) -> dict:
                                     }}
                                 ],
                                 "is_ending": false
-                            }},
-                            ...
+                            }}
                         ],
-                        "main_branch": ["scene1", "scene2", ...],
+                        "main_branch": ["scene1", "scene2"],
                         "alternative_branches": [
                             {{
-                                "path": ["scene1", "scene3", "scene4"],
-                                "description": "Альтернативный путь через дорогу"
+                                "path": ["scene1", "scene3"],
+                                "description": "Альтернативный путь"
                             }}
                         ]
-                    }}
-                    
-                    Убедись, что:
-                    - Все сцены логически связаны
-                    - Выборы имеют значимые последствия
-                    - Соблюдены все технические требования
-                    - JSON валиден и готов к использованию в программе"""
+                    }}"""
                 }
             ]
         }
@@ -94,26 +75,63 @@ async def get(story_object) -> dict:
             "Authorization": f"Api-Key {YANDEX_API_KEY}"
         }
 
-        response = requests.post(url, headers=headers, json=prompt)
-        response.raise_for_status()
-        
-        print(response.text)
-        result = json.loads(response.text)
-        
-        generated_text = result["result"]["alternatives"][0]["message"]["text"]
-        
-        story_json = json.loads(generated_text)
-        return story_json
-        
-    except requests.exceptions.RequestException as e:
-        print(f"Request error: {e}")
+        # Используем aiohttp для асинхронного запроса
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=prompt) as response:
+                response.raise_for_status()
+                
+                response_text = await response.text()
+                print("Raw response:", response_text)
+                
+                # Парсим основной ответ от Yandex API
+                result = json.loads(response_text)
+                
+                # Извлекаем текст генерации
+                generated_text = result["result"]["alternatives"][0]["message"]["text"]
+                print("Generated text:", generated_text)
+                
+                # Очищаем текст от возможных markdown блоков
+                cleaned_text = clean_json_response(generated_text)
+                print("Cleaned text:", cleaned_text)
+                
+                # Парсим JSON истории
+                story_json = json.loads(cleaned_text)
+                return story_json
+                
+    except aiohttp.ClientError as e:
+        print(f"HTTP request error: {e}")
         return None
     except json.JSONDecodeError as e:
         print(f"JSON decode error: {e}")
+        print(f"Problematic text: {cleaned_text if 'cleaned_text' in locals() else 'N/A'}")
         return None
     except KeyError as e:
         print(f"Key error in response: {e}")
+        print(f"Response structure: {result if 'result' in locals() else 'N/A'}")
         return None
     except Exception as e:
         print(f"Unexpected error: {e}")
         return None
+
+def clean_json_response(text):
+    """Очищает ответ от markdown разметки и лишних символов"""
+    # Убираем markdown код блоки
+    text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\s*```$', '', text, flags=re.MULTILINE)
+    
+    # Убираем лишние пробелы и переносы в начале и конце
+    text = text.strip()
+    
+    # Если текст не начинается с {, ищем первую {
+    if not text.startswith('{'):
+        start_index = text.find('{')
+        if start_index != -1:
+            text = text[start_index:]
+    
+    # Если текст не заканчивается на }, ищем последнюю }
+    if not text.endswith('}'):
+        end_index = text.rfind('}')
+        if end_index != -1:
+            text = text[:end_index + 1]
+    
+    return text

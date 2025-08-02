@@ -1,9 +1,9 @@
 from PyQt5.QtWidgets import (
     QWidget, QLabel, QTextEdit, QPushButton,
     QVBoxLayout, QHBoxLayout, QComboBox, QScrollArea, QCheckBox,
-    QFrame, QSizePolicy
+    QFrame, QSizePolicy, QMessageBox
 )
-from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, pyqtSignal, QObject
+from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, pyqtSignal, QObject, QThread
 from PyQt5.QtGui import QFont, QPainter, QLinearGradient, QColor
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
@@ -14,44 +14,39 @@ import settings
 import ai
 import asyncio
 import json
-import requests
 
-class StoryGenerator(QObject):
+class StoryGeneratorWorker(QThread):
+    """Отдельный поток для генерации истории"""
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self):
+    def __init__(self, story_object):
         super().__init__()
+        self.story_object = story_object
 
-    async def generate_async(self, story_object):
+    def run(self):
+        """Запускаем генерацию в отдельном потоке"""
         try:
-            response = await ai.get(story_object)
-            if response:
-                # First, parse the full response as JSON
-                try:
-                    response_data = json.loads(response)
-                    
-                    # Extract the story text from the nested structure
-                    story_text = response_data.get('result', {}).get('alternatives', [{}])[0].get('message', {}).get('text', '')
-                    
-                    # Remove Markdown code blocks if present
-                    if story_text.startswith('```') and story_text.endswith('```'):
-                        story_text = story_text[3:-3].strip()
-                        if story_text.startswith('json'):
-                            story_text = story_text[4:].strip()
-                    
-                    # Parse the actual story JSON
-                    story_data = json.loads(story_text)
-                    self.finished.emit(story_data)
-                    
-                except json.JSONDecodeError as e:
-                    self.error.emit(f"JSON decode error: {str(e)}")
-                except Exception as e:
-                    self.error.emit(f"Error processing response: {str(e)}")
+            # Создаем новый event loop для этого потока
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            # Запускаем асинхронную генерацию
+            result = loop.run_until_complete(ai.get(self.story_object))
+            
+            if result:
+                self.finished.emit(result)
             else:
-                self.error.emit("Empty response from AI")
+                self.error.emit("Не удалось получить ответ от AI")
+                
         except Exception as e:
-            self.error.emit(f"Request failed: {str(e)}")
+            self.error.emit(f"Ошибка при генерации: {str(e)}")
+        finally:
+            # Закрываем loop
+            try:
+                loop.close()
+            except:
+                pass
 
 class GradientButton(QPushButton):
     def __init__(self, text, parent=None):
@@ -125,7 +120,7 @@ class GraphCanvas(FigureCanvas):
         self.fig, self.ax = plt.subplots(figsize=(10, 8))
         super().__init__(self.fig)
         self.setStyleSheet("background-color: transparent;")
-        self.G = nx.Graph()
+        self.G = nx.DiGraph()  # Используем направленный граф для историй
         self._setup_colormap()
         self.draw_graph()
 
@@ -136,52 +131,87 @@ class GraphCanvas(FigureCanvas):
     def draw_graph(self):
         self.ax.clear()
         if self.G.number_of_nodes() > 0:
-            pos = nx.spring_layout(self.G, seed=42, k=0.3)
-            node_colors = [self.cmap(i/len(self.G.nodes())) for i in range(len(self.G.nodes()))]
+            # Используем иерархический layout для лучшего отображения сюжета
+            try:
+                pos = nx.spring_layout(self.G, seed=42, k=1, iterations=50)
+            except:
+                pos = nx.random_layout(self.G)
+                
+            node_colors = [self.cmap(i/max(len(self.G.nodes()), 1)) for i in range(len(self.G.nodes()))]
             
+            # Рисуем узлы
             nx.draw_networkx_nodes(
                 self.G, pos, ax=self.ax,
-                node_size=2500,
+                node_size=2000,
                 node_color=node_colors,
                 edgecolors="#ffffff",
                 linewidths=2
             )
             
+            # Рисуем рёбра
             nx.draw_networkx_edges(
                 self.G, pos, ax=self.ax,
                 width=2,
                 edge_color="#aaaaaa",
                 alpha=0.8,
-                arrowsize=20
+                arrowsize=15,
+                arrowstyle='->'
             )
             
+            # Рисуем подписи (короткие версии названий сцен)
+            labels = {}
+            for node in self.G.nodes():
+                # Сокращаем длинные названия
+                label = str(node)
+                if len(label) > 10:
+                    label = label[:8] + "..."
+                labels[node] = label
+                
             nx.draw_networkx_labels(
-                self.G, pos, ax=self.ax,
-                font_size=12,
+                self.G, pos, labels, ax=self.ax,
+                font_size=8,
                 font_color="#ffffff",
                 font_family="Segoe UI",
                 font_weight="bold"
             )
-            
-            for node in pos:
-                x, y = pos[node]
-                self.ax.scatter(
-                    [x], [y], s=3000,
-                    color=node_colors[list(self.G.nodes()).index(node)],
-                    alpha=0.2, zorder=-1
-                )
 
         self.ax.set_facecolor('#1e1e2d')
         self.fig.patch.set_facecolor('#1e1e2d')
         self.ax.set_xticks([])
         self.ax.set_yticks([])
-        self.ax.spines['top'].set_visible(False)
-        self.ax.spines['right'].set_visible(False)
-        self.ax.spines['bottom'].set_visible(False)
-        self.ax.spines['left'].set_visible(False)
+        for spine in self.ax.spines.values():
+            spine.set_visible(False)
         self.draw()
 
+    def update_graph_from_story(self, story_data):
+        """Обновляет граф на основе данных истории"""
+        self.G.clear()
+        
+        try:
+            scenes = story_data.get('scenes', [])
+            
+            # Добавляем узлы (сцены)
+            for scene in scenes:
+                scene_id = scene.get('id', '')
+                self.G.add_node(scene_id)
+            
+            # Добавляем рёбра (переходы между сценами)
+            for scene in scenes:
+                scene_id = scene.get('id', '')
+                choices = scene.get('choices', [])
+                
+                for choice in choices:
+                    next_scene = choice.get('next_scene_id', '')
+                    if next_scene and next_scene in [s.get('id') for s in scenes]:
+                        self.G.add_edge(scene_id, next_scene)
+            
+            self.draw_graph()
+            
+        except Exception as e:
+            print(f"Ошибка при обновлении графа: {e}")
+
     def update_graph(self, nodes, edges):
+        """Альтернативный метод для обновления графа"""
         self.G.clear()
         self.G.add_nodes_from(nodes)
         self.G.add_edges_from(edges)
@@ -194,6 +224,8 @@ class MainWindow(QWidget):
         self.setWindowTitle("Game Story Generator")
         self.setGeometry(100, 100, 1400, 800)
         self.setStyleSheet(self.dark_theme_stylesheet())
+        self.current_story = None
+        self.worker = None
         self.init_ui()
         self.setup_animations()
 
@@ -292,19 +324,32 @@ class MainWindow(QWidget):
         self.right_container.setObjectName("rightContainer")
         right_layout = QVBoxLayout()
         right_layout.setContentsMargins(20, 20, 20, 20)
-        right_layout.setSpacing(0)
+        right_layout.setSpacing(10)
 
+        # Заголовок для графа
+        graph_title = QLabel("Схема сюжета")
+        graph_title.setObjectName("graphTitle")
+        graph_title.setAlignment(Qt.AlignCenter)
+        
         graph_frame = QFrame()
         graph_frame.setObjectName("graphFrame")
         graph_layout = QVBoxLayout()
-        graph_layout.setContentsMargins(0, 0, 0, 0)
+        graph_layout.setContentsMargins(10, 10, 10, 10)
         
         self.graph_canvas = GraphCanvas()
-        self.graph_canvas.setMinimumSize(600, 600)
+        self.graph_canvas.setMinimumSize(600, 500)
         graph_layout.addWidget(self.graph_canvas)
         graph_frame.setLayout(graph_layout)
         
-        right_layout.addWidget(graph_frame)
+        # Информация о текущей истории
+        self.story_info = QLabel("Сгенерируйте историю для отображения схемы сюжета")
+        self.story_info.setObjectName("storyInfo")
+        self.story_info.setWordWrap(True)
+        self.story_info.setAlignment(Qt.AlignCenter)
+        
+        right_layout.addWidget(graph_title)
+        right_layout.addWidget(graph_frame, 1)
+        right_layout.addWidget(self.story_info)
         self.right_container.setLayout(right_layout)
 
     def labeled_textedit(self, label_text, height):
@@ -369,10 +414,16 @@ class MainWindow(QWidget):
         super().resizeEvent(event)
 
     def generate_story(self):
+        # Проверяем заполненность полей
         desc = self.desc_input.edit.toPlainText().strip()
         heroes_text = self.heroes_input.edit.toPlainText().strip()
-        heroes = [h.strip() for h in heroes_text.split(',') if h.strip()]
         genre = self.genre_input.edit.toPlainText().strip()
+        
+        if not desc or not heroes_text or not genre:
+            QMessageBox.warning(self, "Ошибка", "Пожалуйста, заполните основные поля: описание, персонажи и жанр")
+            return
+
+        heroes = [h.strip() for h in heroes_text.split(',') if h.strip()]
         narrative_style = self.narrative_style_combo.combo.currentText()
         mood = self.mood_combo.combo.currentText()
         theme = self.theme_combo.combo.currentText()
@@ -390,27 +441,58 @@ class MainWindow(QWidget):
             adult=is_adult
         )
 
-        self.generator = StoryGenerator()
-        self.generator.finished.connect(self.handle_story_generated)
-        self.generator.error.connect(self.handle_generation_error)
-        
-        # Запускаем асинхронную задачу
+        # Отключаем кнопку и показываем процесс генерации
         self.generate_btn.setEnabled(False)
         self.generate_btn.setText("Генерация...")
+        self.story_info.setText("Генерируется история...")
         
-        loop = asyncio.get_event_loop()
-        loop.create_task(self.generator.generate_async(story_object))
+        # Создаем и запускаем worker thread
+        self.worker = StoryGeneratorWorker(story_object)
+        self.worker.finished.connect(self.handle_story_generated)
+        self.worker.error.connect(self.handle_generation_error)
+        self.worker.start()
 
     def handle_story_generated(self, result):
-        print("Сгенерированная история:")
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-        self.generate_btn.setEnabled(True)
-        self.generate_btn.setText("Сгенерировать")
+        """Обрабатываем успешную генерацию истории"""
+        try:
+            print("Сгенерированная история:")
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            
+            self.current_story = result
+            
+            # Обновляем граф
+            self.graph_canvas.update_graph_from_story(result)
+            
+            # Обновляем информацию
+            story_title = result.get('title', 'Без названия')
+            story_desc = result.get('description', 'Описание отсутствует')
+            scenes_count = len(result.get('scenes', []))
+            
+            info_text = f"<b>{story_title}</b><br><br>{story_desc}<br><br>Количество сцен: {scenes_count}"
+            self.story_info.setText(info_text)
+            
+        except Exception as e:
+            self.handle_generation_error(f"Ошибка при обработке результата: {str(e)}")
+        finally:
+            self.generate_btn.setEnabled(True)
+            self.generate_btn.setText("Сгенерировать")
 
     def handle_generation_error(self, error_msg):
+        """Обрабатываем ошибки генерации"""
         print(f"Ошибка генерации: {error_msg}")
+        
+        QMessageBox.critical(self, "Ошибка генерации", f"Произошла ошибка при генерации истории:\n\n{error_msg}")
+        
         self.generate_btn.setEnabled(True)
         self.generate_btn.setText("Сгенерировать")
+        self.story_info.setText("Произошла ошибка при генерации. Попробуйте еще раз.")
+
+    def closeEvent(self, event):
+        """Корректно завершаем работу при закрытии приложения"""
+        if self.worker and self.worker.isRunning():
+            self.worker.terminate()
+            self.worker.wait()
+        event.accept()
 
     def dark_theme_stylesheet(self):
         return """
@@ -438,8 +520,24 @@ class MainWindow(QWidget):
                 border-bottom: 2px solid #4facfe;
             }
             
+            #graphTitle {
+                font-size: 18px;
+                font-weight: bold;
+                color: #a6c1ee;
+                padding: 10px;
+            }
+            
+            #storyInfo {
+                font-size: 18px;
+                color: #a6c1ee;
+                padding: 15px;
+                background-color: #25253d;
+                border-radius: 8px;
+                margin-top: 10px;
+            }
+            
             #inputLabel {
-                font-size: 20px;
+                font-size: 18px;
                 font-weight: bold;
                 color: #a6c1ee;
                 margin-bottom: 5px;
@@ -451,7 +549,7 @@ class MainWindow(QWidget):
                 border-radius: 8px;
                 color: #ffffff;
                 padding: 12px;
-                font-size: 20px;
+                font-size: 18px;
                 selection-background-color: #4facfe;
                 min-width: 350px;
             }
@@ -466,7 +564,7 @@ class MainWindow(QWidget):
                 border-radius: 8px;
                 color: #ffffff;
                 padding: 8px;
-                font-size: 20px;
+                font-size: 18px;
                 min-height: 40px;
                 min-width: 350px;
             }
@@ -487,7 +585,7 @@ class MainWindow(QWidget):
                 selection-background-color: #4facfe;
                 selection-color: #ffffff;
                 border: 2px solid #3a3a5a;
-                font-size: 20px;
+                font-size: 18px;
                 padding: 8px;
                 outline: none;
                 min-width: 200px;
@@ -495,7 +593,7 @@ class MainWindow(QWidget):
             
             QCheckBox {
                 spacing: 10px;
-                font-size: 20px;
+                font-size: 18px;
                 color: #a6c1ee;
                 padding: 5px;
             }
@@ -523,6 +621,28 @@ class MainWindow(QWidget):
                 border-radius: 12px;
                 border: none;
                 min-width: 600px;
-                min-height: 600px;
+                min-height: 500px;
+            }
+            
+            QMessageBox {
+                background-color: #25253d;
+                color: #ffffff;
+            }
+            
+            QMessageBox QLabel {
+                color: #ffffff;
+            }
+            
+            QMessageBox QPushButton {
+                background-color: #4facfe;
+                color: #ffffff;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            
+            QMessageBox QPushButton:hover {
+                background-color: #3a7bd5;
             }
         """
