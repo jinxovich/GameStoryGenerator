@@ -141,15 +141,12 @@ class MainWindow(QWidget):
         self.mood_combo = self.labeled_combobox("Настроение:", settings.MOODS)
         self.theme_combo = self.labeled_combobox("Тема:", settings.THEMES)
         self.conflict_combo = self.labeled_combobox("Конфликт:", settings.CONFLICTS)    
-        self.adult_checkbox = QCheckBox("Взрослый контент")
-        self.adult_checkbox.setCursor(Qt.PointingHandCursor)
         self.generate_btn = GradientButton("Сгенерировать")
         self.generate_btn.clicked.connect(self.on_generate_button_clicked)
         for widget in [
             self.desc_input, self.heroes_input, self.genre_input,
             self.narrative_style_combo, self.mood_combo,
-            self.theme_combo, self.conflict_combo,
-            self.adult_checkbox, self.generate_btn
+            self.theme_combo, self.conflict_combo, self.generate_btn
         ]:
             left_layout.addWidget(widget)
         left_layout.addStretch(1)
@@ -253,8 +250,8 @@ class MainWindow(QWidget):
         heroes_text = self.heroes_input.edit.toPlainText().strip()
         genre = self.genre_input.edit.toPlainText().strip()
         if not desc or not heroes_text or not genre:
-             self.show_error("Пожалуйста, заполните основные поля: описание, персонажи и жанр")
-             return
+            self.show_error("Пожалуйста, заполните основные поля: описание, персонажи и жанр")
+            return
 
         heroes = [h.strip() for h in heroes_text.split(',') if h.strip()]
         from StoryObject import StoryObject
@@ -262,7 +259,6 @@ class MainWindow(QWidget):
         mood = self.mood_combo.combo.currentText()
         theme = self.theme_combo.combo.currentText()
         conflict = self.conflict_combo.combo.currentText()
-        is_adult = self.adult_checkbox.isChecked()
 
         story_object = StoryObject(
             description=desc,
@@ -271,8 +267,7 @@ class MainWindow(QWidget):
             narrative_style=narrative_style,
             mood=mood,
             theme=theme,
-            conflict=conflict,
-            adult=is_adult
+            conflict=conflict
         )
         self.enable_generation_button(False)
         self.set_generation_status("Генерируется история...")
@@ -288,7 +283,7 @@ class MainWindow(QWidget):
             info_text = f"<b>{story_title}</b><br><br>{story_desc}<br><br>Количество сцен: {scenes_count}"
             self.story_info.setText(info_text)
         except Exception as e:
-             self.set_generation_status(f"Ошибка при обработке результата: {e}")
+            self.set_generation_status(f"Ошибка при обработке результата: {e}")
 
     def set_generation_status(self, message):
         self.story_info.setText(message)
