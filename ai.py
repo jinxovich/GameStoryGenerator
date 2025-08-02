@@ -75,7 +75,6 @@ async def get(story_object) -> dict:
             "Authorization": f"Api-Key {YANDEX_API_KEY}"
         }
 
-        # Используем aiohttp для асинхронного запроса
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=headers, json=prompt) as response:
                 response.raise_for_status()
@@ -83,18 +82,14 @@ async def get(story_object) -> dict:
                 response_text = await response.text()
                 print("Raw response:", response_text)
                 
-                # Парсим основной ответ от Yandex API
                 result = json.loads(response_text)
                 
-                # Извлекаем текст генерации
                 generated_text = result["result"]["alternatives"][0]["message"]["text"]
                 print("Generated text:", generated_text)
                 
-                # Очищаем текст от возможных markdown блоков
                 cleaned_text = clean_json_response(generated_text)
                 print("Cleaned text:", cleaned_text)
                 
-                # Парсим JSON истории
                 story_json = json.loads(cleaned_text)
                 return story_json
                 
@@ -114,21 +109,17 @@ async def get(story_object) -> dict:
         return None
 
 def clean_json_response(text):
-    """Очищает ответ от markdown разметки и лишних символов"""
-    # Убираем markdown код блоки
+
     text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.MULTILINE)
     text = re.sub(r'\s*```$', '', text, flags=re.MULTILINE)
     
-    # Убираем лишние пробелы и переносы в начале и конце
     text = text.strip()
     
-    # Если текст не начинается с {, ищем первую {
     if not text.startswith('{'):
         start_index = text.find('{')
         if start_index != -1:
             text = text[start_index:]
     
-    # Если текст не заканчивается на }, ищем последнюю }
     if not text.endswith('}'):
         end_index = text.rfind('}')
         if end_index != -1:
