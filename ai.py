@@ -10,88 +10,66 @@ async def get(story_object) -> dict:
             "modelUri": f"gpt://{YANDEX_ID_KEY}/yandexgpt-lite",
             "completionOptions": {
                 "stream": False,
-                "temperature": 0.5,
+                "temperature": 0.7,
                 "maxTokens": "10000"
             },
             "messages": [
                 {
                     "role": "system",
                     "text": """Ты профессиональный сценарист, специализирующийся на интерактивных квестах. 
-                    Создай увлекательный нелинейный квест на основе предоставленных параметров. 
-                    Результат должен быть ТОЛЬКО в формате JSON без дополнительных объяснений или форматирования markdown.
+                    Создай увлекательный ПОЛНОСТЬЮ ВЗАИМОСВЯЗАННЫЙ нелинейный квест на основе предоставленных параметров. 
                     
-                    Структура каждой сцены:
-                    - scene_id: уникальный идентификатор сцены
-                    - text: основной текст сцены с описанием ситуации, окружения, действий персонажей
-                    - choices: массив вариантов действий, каждый с полями text и next_scene
+                    КРИТИЧЕСКИ ВАЖНО:
+                    1. ВСЕ сцены должны быть доступны через выборы из других сцен
+                    2. Создай МИНИМУМ 5-12 сцен с разветвлениями
+                    3. Должно быть минимум 2 различных концовки
+                    4. Каждый выбор должен иметь КРАТКОЕ но ОСМЫСЛЕННОЕ название (2-4 слова)
+                    5. НЕ должно быть "висячих" сцен, до которых нельзя добраться
                     
-                    Создай минимум 5-7 взаимосвязанных сцен с разветвлениями и как минимум 2 концовками."""
+                    Результат должен быть ТОЛЬКО в формате JSON без дополнительных объяснений или форматирования markdown."""
                 },
                 {
                     "role": "user",
                     "text": f"""Создай интерактивный квест в жанре {story_object.genre} со следующими параметрами:
-                    
                     Основное описание: {story_object.description}
                     Главные герои: {', '.join(story_object.heroes)}
                     Стиль повествования: {story_object.narrative_style}
                     Настроение: {story_object.mood}
                     Тема: {story_object.theme}
                     Основной конфликт: {story_object.conflict}
+                    """ + 
+                    """ОБЯЗАТЕЛЬНЫЕ ТРЕБОВАНИЯ:
+                    1. Минимум 5-12 взаимосвязанных сцен
+                    2. Минимум 2 концовки (хорошая, плохая)
+                    3. Каждая сцена должна быть доступна через выборы
+                    4. Названия выборов: краткие и понятные (2-4 слова)
+                    5. Насыщенные описания сцен (100-200 слов каждая)
                     
                     Верни ТОЛЬКО валидный JSON в следующем формате:
-                    {{
+                    {
                         "title": "Название квеста",
-                        "description": "Краткое описание квеста",
-                        "start_scene": "scene1",
-                        "scenes": {{
-                            "scene1": {{
-                                "scene_id": "scene1",
-                                "text": "Подробный текст первой сцены с описанием ситуации...",
+                        "description": "Общее описание квеста",
+                        "start_scene": "начальная_сцена",
+                        "scenes": {
+                            "scene_id_1": {
+                                "text": "Описание сцены",
                                 "choices": [
-                                    {{
-                                        "text": "Выбрать действие 1",
-                                        "next_scene": "scene2"
-                                    }},
-                                    {{
-                                        "text": "Выбрать действие 2", 
-                                        "next_scene": "scene3"
-                                    }}
+                                    {
+                                        "text": "Выбор 1",
+                                        "next_scene": "scene_id_2"
+                                    },
+                                    {
+                                        "text": "Выбор 2",
+                                        "next_scene": "scene_id_3"
+                                    }
                                 ]
-                            }},
-                            "scene2": {{
-                                "scene_id": "scene2",
-                                "text": "Текст второй сцены...",
-                                "choices": [
-                                    {{
-                                        "text": "Продолжить",
-                                        "next_scene": "scene4"
-                                    }}
-                                ]
-                            }},
-                            "scene3": {{
-                                "scene_id": "scene3", 
-                                "text": "Текст третьей сцены...",
-                                "choices": [
-                                    {{
-                                        "text": "Действие",
-                                        "next_scene": "scene5"
-                                    }}
-                                ]
-                            }},
-                            "scene4": {{
-                                "scene_id": "scene4",
-                                "text": "Концовка 1. Подробное описание завершения истории...",
+                            },
+                            "scene_id_2": {
+                                "text": "Описание сцены",
                                 "choices": []
-                            }},
-                            "scene5": {{
-                                "scene_id": "scene5",
-                                "text": "Концовка 2. Альтернативное завершение истории...", 
-                                "choices": []
-                            }}
-                        }}
-                    }}
-                    
-                    Важно: создай насыщенные текстом сцены с атмосферными описаниями, диалогами и действиями персонажей."""
+                            }
+                        }
+                    }"""
                 }
             ]
         }
@@ -109,15 +87,32 @@ async def get(story_object) -> dict:
                 response_text = await response.text()
                 print("Raw response:", response_text)
                 
-                result = json.loads(response_text)
-
-                generated_text = result["result"]["alternatives"][0]["message"]["text"]
+                try:
+                    # First try to parse the full response
+                    result = json.loads(response_text)
+                    generated_text = result["result"]["alternatives"][0]["message"]["text"]
+                except (json.JSONDecodeError, KeyError):
+                    # If that fails, maybe we got the raw JSON directly
+                    generated_text = response_text
+                
                 print("Generated text:", generated_text)
                 
+                # Clean the response text
                 cleaned_text = clean_json_response(generated_text)
                 print("Cleaned text:", cleaned_text)
 
-                quest_json = json.loads(cleaned_text)
+                # Try to parse the cleaned JSON
+                try:
+                    quest_json = json.loads(cleaned_text)
+                except json.JSONDecodeError as e:
+                    print(f"Failed to parse JSON: {e}")
+                    # Try to find the JSON part in the text
+                    json_start = cleaned_text.find('{')
+                    json_end = cleaned_text.rfind('}') + 1
+                    if json_start != -1 and json_end != -1:
+                        quest_json = json.loads(cleaned_text[json_start:json_end])
+                    else:
+                        raise
 
                 converted_story = convert_to_old_format(quest_json)
                 
@@ -146,14 +141,13 @@ def convert_to_old_format(quest_data):
         for scene_id, scene_data in scenes_dict.items():
             scene = {
                 'id': scene_data.get('scene_id', scene_id),
-                'title': f"Сцена {scene_id}",  # Можно улучшить, извлекая из текста
+                'title': extract_title_from_text(scene_data.get('text', ''), scene_id),
                 'description': scene_data.get('text', ''),
-                'characters': [],  # Можно попытаться извлечь из текста
+                'characters': extract_characters_from_text(scene_data.get('text', '')),
                 'choices': [],
                 'is_ending': len(scene_data.get('choices', [])) == 0
             }
             
-            # Конвертируем выборы
             for choice in scene_data.get('choices', []):
                 scene['choices'].append({
                     'text': choice.get('text', ''),
@@ -195,6 +189,24 @@ def convert_to_old_format(quest_data):
     except Exception as e:
         print(f"Error converting quest format: {e}")
         return quest_data
+
+def extract_title_from_text(text, fallback_id):
+    """Извлекает заголовок из первых слов текста"""
+    if not text:
+        return fallback_id
+    
+    words = text.split()[:3]
+    title = ' '.join(words)
+    if len(title) > 20:
+        title = title[:17] + "..."
+    return title if title else fallback_id
+
+def extract_characters_from_text(text):
+    import re
+    names = re.findall(r'\b[А-ЯA-Z][а-яa-z]+\b', text)
+    common_words = {'Вы', 'Ваш', 'Ваша', 'Вас', 'Они', 'Он', 'Она', 'Это', 'Там', 'Тут'}
+    names = [name for name in names if name not in common_words]
+    return list(set(names))[:3]
 
 def clean_json_response(text):
     text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.MULTILINE)
