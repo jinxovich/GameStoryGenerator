@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, pyqtSignal
 from PyQt5.QtGui import QFont, QPainter, QLinearGradient, QColor
-from story_graph import StoryGraph # Импортируем новый класс для графа
+from story_graph import StoryGraph 
 import settings
 
 class GradientButton(QPushButton):
@@ -70,11 +70,9 @@ class GradientButton(QPushButton):
             self._animation.setEndValue(QRect(self.x()+2, self.y()+2, self.width()-4, self.height()-4))
             self._animation.start()
 
-# Удалён класс GraphCanvas
 
 class MainWindow(QWidget):
-    # Сигнал для запроса генерации истории
-    storyRequested = pyqtSignal(object) # Передаём StoryObject
+    storyRequested = pyqtSignal(object)
 
     def __init__(self):
         super().__init__()
@@ -82,7 +80,6 @@ class MainWindow(QWidget):
         self.setGeometry(100, 100, 1400, 800)
         self.setStyleSheet(self.dark_theme_stylesheet())
         self.current_story = None
-        # Удалён атрибут self.worker
         self.init_ui()
         self.setup_animations()
 
@@ -147,7 +144,6 @@ class MainWindow(QWidget):
         self.adult_checkbox = QCheckBox("Взрослый контент")
         self.adult_checkbox.setCursor(Qt.PointingHandCursor)
         self.generate_btn = GradientButton("Сгенерировать")
-        # Подключаем кнопку к новому слоту
         self.generate_btn.clicked.connect(self.on_generate_button_clicked)
         for widget in [
             self.desc_input, self.heroes_input, self.genre_input,
@@ -168,6 +164,8 @@ class MainWindow(QWidget):
         right_layout = QVBoxLayout()
         right_layout.setContentsMargins(20, 20, 20, 20)
         right_layout.setSpacing(10)
+        
+        
         # Заголовок для графа
         graph_title = QLabel("Схема сюжета")
         graph_title.setObjectName("graphTitle")
@@ -176,11 +174,15 @@ class MainWindow(QWidget):
         graph_frame.setObjectName("graphFrame")
         graph_layout = QVBoxLayout()
         graph_layout.setContentsMargins(10, 10, 10, 10)
+        
+        
         # Используем новый класс для графа
         self.graph_canvas = StoryGraph()
         self.graph_canvas.setMinimumSize(600, 500)
         graph_layout.addWidget(self.graph_canvas)
         graph_frame.setLayout(graph_layout)
+        
+        
         # Информация о текущей истории
         self.story_info = QLabel("Сгенерируйте историю для отображения схемы сюжета")
         self.story_info.setObjectName("storyInfo")
@@ -246,21 +248,16 @@ class MainWindow(QWidget):
         self.left_container.setMaximumWidth(left_width)
         super().resizeEvent(event)
 
-    # Новый метод для обработки нажатия кнопки
     def on_generate_button_clicked(self):
-        """Слот для кнопки 'Сгенерировать'. Вызывается при нажатии."""
-        # Проверяем заполненность полей
         desc = self.desc_input.edit.toPlainText().strip()
         heroes_text = self.heroes_input.edit.toPlainText().strip()
         genre = self.genre_input.edit.toPlainText().strip()
         if not desc or not heroes_text or not genre:
-             # QMessageBox.warning(self, "Ошибка", ...) # Можно оставить здесь или перенести в логику
              self.show_error("Пожалуйста, заполните основные поля: описание, персонажи и жанр")
              return
 
         heroes = [h.strip() for h in heroes_text.split(',') if h.strip()]
-        # Импортируем StoryObject здесь или передаём параметры напрямую
-        from StoryObject import StoryObject # Импортируем локально
+        from StoryObject import StoryObject
         narrative_style = self.narrative_style_combo.combo.currentText()
         mood = self.mood_combo.combo.currentText()
         theme = self.theme_combo.combo.currentText()
@@ -277,22 +274,14 @@ class MainWindow(QWidget):
             conflict=conflict,
             adult=is_adult
         )
-        # Отключаем кнопку и показываем процесс генерации
         self.enable_generation_button(False)
         self.set_generation_status("Генерируется история...")
-        # Испускаем сигнал с объектом истории
         self.storyRequested.emit(story_object)
 
-    # Новые методы для взаимодействия с внешней логикой
     def set_story_data(self, story_data):
-        """Обновляет информацию о сюжете и граф."""
         try:
-            # print("Сгенерированная история:")
-            # print(json.dumps(story_data, indent=2, ensure_ascii=False))
             self.current_story = story_data
-            # Обновляем граф
             self.graph_canvas.update_graph_from_story(story_data)
-            # Обновляем информацию
             story_title = story_data.get('title', 'Без названия')
             story_desc = story_data.get('description', 'Описание отсутствует')
             scenes_count = len(story_data.get('scenes', []))
@@ -302,11 +291,9 @@ class MainWindow(QWidget):
              self.set_generation_status(f"Ошибка при обработке результата: {e}")
 
     def set_generation_status(self, message):
-        """Обновляет текст статуса генерации."""
         self.story_info.setText(message)
 
     def enable_generation_button(self, enabled: bool):
-        """Активирует/деактивирует кнопку генерации."""
         self.generate_btn.setEnabled(enabled)
         if enabled:
             self.generate_btn.setText("Сгенерировать")
@@ -314,15 +301,11 @@ class MainWindow(QWidget):
             self.generate_btn.setText("Генерация...")
 
     def show_error(self, message):
-        """Показывает сообщение об ошибке."""
-        print(f"Ошибка генерации (GUI): {message}") # Логирование
+        print(f"Ошибка генерации (GUI): {message}")
         QMessageBox.critical(self, "Ошибка генерации", message)
 
-    # Удалены методы generate_story, handle_story_generated, handle_generation_error
 
     def closeEvent(self, event):
-        """Корректно завершаем работу при закрытии приложения"""
-        # Логика завершения worker'а перенесена в main.py или отдельный класс логики
         event.accept()
 
     def dark_theme_stylesheet(self):

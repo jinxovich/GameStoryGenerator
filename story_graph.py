@@ -1,4 +1,3 @@
-# story_graph.py
 from PyQt5.QtWidgets import QSizePolicy, QToolTip
 from PyQt5.QtCore import QPoint, QRect
 from PyQt5.QtGui import QCursor
@@ -9,19 +8,16 @@ from matplotlib.colors import LinearSegmentedColormap
 import matplotlib.patches as mpatches
 
 class StoryGraph(FigureCanvas):
-    """
-    Canvas для отображения графа истории.
-    """
+
     def __init__(self, parent=None):
         self.fig, self.ax = plt.subplots(figsize=(10, 8))
         super().__init__(self.fig)
         self.setStyleSheet("background-color: transparent;")
-        self.G = nx.DiGraph()  # Используем направленный граф для историй
-        self.story_data = {} # Сохраняем исходные данные для тултипов
+        self.G = nx.DiGraph()
+        self.story_data = {}
         self._setup_colormap()
         self.draw_graph()
         
-        # Включаем интерактивность
         self.fig.canvas.mpl_connect('motion_notify_event', self.on_hover)
 
     def _setup_colormap(self):
@@ -32,12 +28,9 @@ class StoryGraph(FigureCanvas):
         self.ax.clear()
         if self.G.number_of_nodes() > 0:
             try:
-                # Используем иерархический layout для лучшего отображения сюжета
-                # Попробуем сначала найти "корень" (сцена без входящих рёбер)
+
                 roots = [n for n in self.G.nodes() if self.G.in_degree(n) == 0]
                 if roots:
-                    # Используем multipartite_layout для создания уровневого дерева
-                    # Сначала определим уровни
                     levels = {}
                     for root in roots:
                         levels[root] = 0
@@ -49,7 +42,6 @@ class StoryGraph(FigureCanvas):
                                     levels[neighbor] = level + 1
                                     queue.append((neighbor, level + 1))
                     
-                    # Создаем словарь для layout
                     pos = {}
                     level_nodes = {}
                     for node, level in levels.items():
@@ -57,25 +49,20 @@ class StoryGraph(FigureCanvas):
                             level_nodes[level] = []
                         level_nodes[level].append(node)
                     
-                    # Располагаем узлы по уровням
                     for level, nodes in level_nodes.items():
                         num_nodes = len(nodes)
                         for i, node in enumerate(nodes):
-                            # Центрируем узлы на уровне
                             x_offset = (i - (num_nodes - 1) / 2) * 2
-                            pos[node] = (x_offset, -level) # Отрицательный Y для "падения" вниз
+                            pos[node] = (x_offset, -level)
                 else:
-                    # fallback если корень не найден
                     pos = nx.spring_layout(self.G, seed=42, k=3, iterations=50)
             except Exception as e:
                 print(f"Ошибка при создании layout: {e}")
                 pos = nx.spring_layout(self.G, seed=42, k=1, iterations=50)
 
-            # Подготавливаем цвета и размеры узлов
             node_colors = [self.cmap(i/max(len(self.G.nodes()), 1)) for i in range(len(self.G.nodes()))]
-            node_sizes = [2500 for _ in self.G.nodes()] # Фиксированный размер
+            node_sizes = [2500 for _ in self.G.nodes()]
             
-            # Рисуем узлы
             nx.draw_networkx_nodes(
                 self.G, pos, ax=self.ax,
                 node_size=node_sizes,
@@ -84,7 +71,6 @@ class StoryGraph(FigureCanvas):
                 linewidths=2
             )
             
-            # Рисуем рёбра
             nx.draw_networkx_edges(
                 self.G, pos, ax=self.ax,
                 width=2,
@@ -92,16 +78,14 @@ class StoryGraph(FigureCanvas):
                 alpha=0.8,
                 arrowsize=20,
                 arrowstyle='->',
-                connectionstyle='arc3,rad=0.1' # Слегка изогнутые линии для лучшего вида
+                connectionstyle='arc3,rad=0.1'
             )
             
-            # Рисуем подписи (названия сцен)
             labels = {}
             for node in self.G.nodes():
                 scene = self._find_scene_by_id(node)
                 if scene:
                     title = scene.get('title', node)
-                    # Сокращаем длинные названия
                     if len(title) > 15:
                         title = title[:13] + "..."
                     labels[node] = title
@@ -119,7 +103,6 @@ class StoryGraph(FigureCanvas):
                 font_weight="bold"
             )
             
-            # Сохраняем позиции узлов для обработки hover
             self.node_positions = pos
             
         else:
@@ -136,39 +119,31 @@ class StoryGraph(FigureCanvas):
         self.draw()
 
     def update_graph_from_story(self, story_data):
-        """Обновляет граф на основе данных истории"""
-        self.story_data = story_data # Сохраняем данные для тултипов
+        self.story_data = story_data
         self.G.clear()
         try:
             scenes = story_data.get('scenes', [])
-            # Добавляем узлы (сцены)
             for scene in scenes:
                 scene_id = scene.get('id', '')
-                # Можно добавить атрибуты узла, если нужно
                 self.G.add_node(scene_id)
-            # Добавляем рёбра (переходы между сценами)
             for scene in scenes:
                 scene_id = scene.get('id', '')
                 choices = scene.get('choices', [])
                 for choice in choices:
                     next_scene = choice.get('next_scene_id', '')
                     if next_scene and next_scene in [s.get('id') for s in scenes]:
-                        # Можно добавить атрибуты ребра, если нужно
                         self.G.add_edge(scene_id, next_scene)
             self.draw_graph()
         except Exception as e:
             print(f"Ошибка при обновлении графа: {e}")
-            # Можно эмитировать сигнал ошибки или просто логировать
 
     def update_graph(self, nodes, edges):
-        """Альтернативный метод для обновления графа"""
         self.G.clear()
         self.G.add_nodes_from(nodes)
         self.G.add_edges_from(edges)
         self.draw_graph()
         
     def _find_scene_by_id(self, scene_id):
-        """Находит сцену в story_data по её ID"""
         scenes = self.story_data.get('scenes', [])
         for scene in scenes:
             if scene.get('id') == scene_id:
@@ -176,22 +151,16 @@ class StoryGraph(FigureCanvas):
         return None
         
     def on_hover(self, event):
-        """Обработчик события наведения мыши"""
         if event.inaxes == self.ax:
-            # Проверяем, находится ли курсор над каким-либо узлом
             for node, (x, y) in self.node_positions.items():
-                # Преобразуем координаты узла в пиксели
                 node_x, node_y = self.ax.transData.transform((x, y))
                 event_x, event_y = event.x, event.y
                 
-                # Вычисляем расстояние между курсором и центром узла
                 distance = ((node_x - event_x)**2 + (node_y - event_y)**2)**0.5
                 
-                # Радиус узла в пикселях (примерно)
                 node_radius_px = 30 
                 
                 if distance < node_radius_px:
-                    # Нашли узел под курсором, показываем тултип
                     scene = self._find_scene_by_id(node)
                     if scene:
                         title = scene.get('title', 'Без названия')
@@ -203,10 +172,8 @@ class StoryGraph(FigureCanvas):
                         if is_ending:
                             tooltip_text += "\n\n(Конец истории)"
                             
-                        # Позиционируем тултип рядом с курсором
                         cursor_pos = QCursor.pos()
                         QToolTip.showText(cursor_pos, tooltip_text, self)
                         return
                         
-            # Если курсор не над узлом, скрываем тултип
             QToolTip.hideText()
