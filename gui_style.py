@@ -182,4 +182,30 @@ style="""
             QSplitter::handle:horizontal:hover {
                 background-color: #4facfe;
             }
+            QToolTip {
+                background-color: #ffffff;
+                color: #1e1e2d;
+                border: 2px solid #4facfe;
+                border-radius: 8px;
+                padding: 8px 12px;
+                font-size: 12px;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-weight: normal;
+                opacity: 240;
+            }
+            #infoLabel {
+                font-size: 14px;
+                color: #a6c1ee;
+                font-style: italic;
+                padding: 5px;
+            }
+            #statsLabel {
+                font-size: 12px;
+                color: #ffffff;
+                background-color: #2a2a45;
+                padding: 8px 12px;
+                border-radius: 6px;
+                border: 1px solid #3a3a5a;
+                font-family: 'Consolas', 'Monaco', monospace;
+            }
         """

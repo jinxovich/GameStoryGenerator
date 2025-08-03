@@ -9,6 +9,15 @@ from story_graph import StoryGraph
 import settings
 from gui_style import style
 
+class CustomComboBox(QComboBox):
+    """Кастомный ComboBox который не реагирует на прокрутку мыши"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+    
+    def wheelEvent(self, event):
+        # Игнорируем события прокрутки мыши
+        event.ignore()
+
 class GradientButton(QPushButton):
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
@@ -197,69 +206,58 @@ class MainWindow(QWidget):
         self.right_container.setObjectName("rightContainer")
         
         right_layout = QVBoxLayout()
-        right_layout.setContentsMargins(20, 20, 20, 20)
-        right_layout.setSpacing(15)
+        right_layout.setContentsMargins(15, 15, 15, 15)
+        right_layout.setSpacing(10)
         
-        # Заголовок для графа
+        # Заголовок для графа с информацией
+        header_layout = QHBoxLayout()
+        
         graph_header = QLabel("📊 Схема сюжета")
         graph_header.setObjectName("graphTitle")
-        graph_header.setAlignment(Qt.AlignCenter)
+        graph_header.setAlignment(Qt.AlignLeft)
         
-        # Контейнер для графа
-        graph_frame = QFrame()
-        graph_frame.setObjectName("graphFrame")
-        graph_layout = QVBoxLayout()
-        graph_layout.setContentsMargins(15, 15, 15, 15)
+        # Информационная панель справа от заголовка
+        self.info_label = QLabel("Сгенерируйте историю для отображения схемы")
+        self.info_label.setObjectName("infoLabel")
+        self.info_label.setAlignment(Qt.AlignRight)
+        
+        header_layout.addWidget(graph_header)
+        header_layout.addStretch()
+        header_layout.addWidget(self.info_label)
+        
+        # Контейнер для графа с прокруткой
+        graph_scroll = QScrollArea()
+        graph_scroll.setWidgetResizable(True)
+        graph_scroll.setStyleSheet("""
+            QScrollArea {
+                border: 1px solid #3a3a5a;
+                border-radius: 12px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #25253d, stop:1 #1e1e2d);
+            }
+            QScrollBar:vertical, QScrollBar:horizontal {
+                background: #2a2a45;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+                background: #4facfe;
+                border-radius: 5px;
+                min-height: 20px;
+                min-width: 20px;
+            }
+            QScrollBar::add-line, QScrollBar::sub-line {
+                height: 0px;
+                width: 0px;
+            }
+            QScrollBar::add-page, QScrollBar::sub-page {
+                background: none;
+            }
+        """)
         
         # Граф истории
         self.graph_canvas = StoryGraph()
-        self.graph_canvas.setMinimumSize(700, 500)
-        graph_layout.addWidget(self.graph_canvas)
-        graph_frame.setLayout(graph_layout)
-        
-        # Создаём нижнюю панель с информацией
-        info_splitter = QSplitter(Qt.Horizontal)
-        
-        # Информация о истории (левая часть)
-        story_info_frame = QFrame()
-        story_info_frame.setObjectName("infoFrame")
-        story_info_layout = QVBoxLayout()
-        story_info_layout.setContentsMargins(15, 15, 15, 15)
-        
-        story_info_title = QLabel("📖 Информация об истории")
-        story_info_title.setObjectName("infoTitle")
-        
-        self.story_info = QLabel("Сгенерируйте историю для отображения информации")
-        self.story_info.setObjectName("storyInfo")
-        self.story_info.setWordWrap(True)
-        self.story_info.setAlignment(Qt.AlignTop)
-        
-        story_info_layout.addWidget(story_info_title)
-        story_info_layout.addWidget(self.story_info)
-        story_info_frame.setLayout(story_info_layout)
-        
-        # Статистика графа (правая часть)
-        stats_frame = QFrame()
-        stats_frame.setObjectName("infoFrame")
-        stats_layout = QVBoxLayout()
-        stats_layout.setContentsMargins(15, 15, 15, 15)
-        
-        stats_title = QLabel("📈 Статистика графа")
-        stats_title.setObjectName("infoTitle")
-        
-        self.stats_info = QLabel("Статистика будет отображена после генерации")
-        self.stats_info.setObjectName("statsInfo")
-        self.stats_info.setWordWrap(True)
-        self.stats_info.setAlignment(Qt.AlignTop)
-        
-        stats_layout.addWidget(stats_title)
-        stats_layout.addWidget(self.stats_info)
-        stats_frame.setLayout(stats_layout)
-        
-        # Добавляем в сплиттер
-        info_splitter.addWidget(story_info_frame)
-        info_splitter.addWidget(stats_frame)
-        info_splitter.setSizes([300, 200])
+        self.graph_canvas.setMinimumSize(1000, 800)  # Увеличиваем минимальный размер
+        graph_scroll.setWidget(self.graph_canvas)
         
         # Кнопки действий
         actions_layout = QHBoxLayout()
@@ -275,14 +273,18 @@ class MainWindow(QWidget):
         self.analyze_btn.setEnabled(False)
         self.analyze_btn.clicked.connect(self.analyze_structure)
         
+        # Статистика в кнопочной панели
+        self.stats_label = QLabel("Ожидание генерации...")
+        self.stats_label.setObjectName("statsLabel")
+        
         actions_layout.addWidget(self.export_btn)
         actions_layout.addWidget(self.analyze_btn)
         actions_layout.addStretch()
+        actions_layout.addWidget(self.stats_label)
         
         # Собираем правую панель
-        right_layout.addWidget(graph_header)
-        right_layout.addWidget(graph_frame, 1)
-        right_layout.addWidget(info_splitter)
+        right_layout.addLayout(header_layout)
+        right_layout.addWidget(graph_scroll, 1)  # Граф занимает всё оставшееся место
         right_layout.addLayout(actions_layout)
         
         self.right_container.setLayout(right_layout)
@@ -321,7 +323,7 @@ class MainWindow(QWidget):
         label.setObjectName("inputLabel")
         label.setFont(QFont("Segoe UI", 12, QFont.Bold))
         
-        combo = QComboBox()
+        combo = CustomComboBox()  # Используем кастомный ComboBox
         combo.addItems(items)
         combo.setObjectName("comboBox")
         combo.setCursor(Qt.PointingHandCursor)
@@ -380,23 +382,17 @@ class MainWindow(QWidget):
             
             # Обновляем информацию об истории
             story_title = story_data.get('title', 'Без названия')
-            story_desc = story_data.get('description', 'Описание отсутствует')
             scenes_count = len(story_data.get('scenes', []))
-            genre = story_data.get('genre', 'Неизвестный жанр')
             
-            info_text = f"""<b>{story_title}</b>
-            
-<i>{story_desc}</i>
-
-<b>Жанр:</b> {genre}
-<b>Количество сцен:</b> {scenes_count}
-<b>Статус:</b> ✅ История успешно сгенерирована"""
-            
-            self.story_info.setText(info_text)
+            info_text = f"✅ {story_title} | Сцен: {scenes_count}"
+            self.info_label.setText(info_text)
             
             # Обновляем статистику
             stats_text = self.graph_canvas.get_graph_statistics()
-            self.stats_info.setText(stats_text)
+            # Делаем статистику более компактной для нижней панели
+            stats_parts = stats_text.split('\n')[1:]  # Убираем заголовок
+            compact_stats = " | ".join([part.strip() for part in stats_parts if part.strip()])
+            self.stats_label.setText(compact_stats)
             
             # Активируем кнопки действий
             self.export_btn.setEnabled(True)
@@ -406,8 +402,8 @@ class MainWindow(QWidget):
             self.set_generation_status(f"❌ Ошибка при обработке результата: {e}")
 
     def set_generation_status(self, message):
-        self.story_info.setText(message)
-        self.stats_info.setText("Ожидание генерации...")
+        self.info_label.setText(message)
+        self.stats_label.setText("Ожидание генерации...")
 
     def enable_generation_button(self, enabled: bool):
         self.generate_btn.setEnabled(enabled)

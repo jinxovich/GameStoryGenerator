@@ -39,12 +39,8 @@ class StoryGraph(FigureCanvas):
         
         if self.G.number_of_nodes() > 0:
             try:
-                # Создаём иерархический layout для лучшего отображения
-                roots = [n for n in self.G.nodes() if self.G.in_degree(n) == 0]
-                if roots:
-                    pos = self._create_hierarchical_layout()
-                else:
-                    pos = nx.spring_layout(self.G, seed=42, k=3, iterations=100)
+                # Создаём древовидный layout
+                pos = self._create_tree_layout()
             except Exception as e:
                 print(f"Ошибка при создании layout: {e}")
                 pos = nx.spring_layout(self.G, seed=42, k=1, iterations=50)
@@ -59,7 +55,7 @@ class StoryGraph(FigureCanvas):
                     node_sizes.append(3000)
                 elif node == self._get_start_scene():
                     node_colors.append('#51cf66')  # Зелёный для старта
-                    node_sizes.append(3000)
+                    node_sizes.append(3500)  # Немного больше для начальной сцены
                 else:
                     node_colors.append('#4dabf7')  # Синий для обычных сцен
                     node_sizes.append(2500)
@@ -74,17 +70,17 @@ class StoryGraph(FigureCanvas):
                 alpha=0.9
             )
             
-            # Рисуем рёбра
+            # Рисуем рёбра с улучшенным стилем для древовидной структуры
             nx.draw_networkx_edges(
                 self.G, pos, ax=self.ax,
                 width=2,
                 edge_color="#aaaaaa",
-                alpha=0.7,
-                arrowsize=20,
-                arrowstyle='->',
-                connectionstyle='arc3,rad=0.1',
-                min_source_margin=15,
-                min_target_margin=15
+                alpha=0.8,
+                arrowsize=25,
+                arrowstyle='-|>',
+                connectionstyle='arc3,rad=0.05',  # Меньший изгиб для дерева
+                min_source_margin=20,
+                min_target_margin=20
             )
             
             # Подписи узлов - просто номера сцен темным шрифтом
@@ -101,42 +97,9 @@ class StoryGraph(FigureCanvas):
                 font_weight="bold"
             )
             
-            # Подписи рёбер (выборы)
+            # Подписи рёбер (выборы) с улучшенным позиционированием
             if self.edge_labels:
-                # Вычисляем позиции для подписей рёбер
-                edge_pos = {}
-                for (node1, node2), label in self.edge_labels.items():
-                    if node1 in pos and node2 in pos:
-                        x1, y1 = pos[node1]
-                        x2, y2 = pos[node2] 
-                        # Размещаем подпись в середине ребра, слегка смещённую
-                        edge_x = (x1 + x2) / 2
-                        edge_y = (y1 + y2) / 2
-                        
-                        # Добавляем небольшое смещение для лучшей читаемости
-                        offset_x = (y2 - y1) * 0.1  # Перпендикулярное смещение
-                        offset_y = -(x2 - x1) * 0.1
-                        
-                        edge_pos[(node1, node2)] = (edge_x + offset_x, edge_y + offset_y)
-                
-                # Рисуем подписи рёбер
-                for (node1, node2), (x, y) in edge_pos.items():
-                    label = self.edge_labels.get((node1, node2), '')
-                    if label:
-                        # Сокращаем длинные подписи
-                        if len(label) > 15:
-                            label = label[:13] + "..."
-                        
-                        self.ax.text(x, y, label, 
-                                   fontsize=7, 
-                                   color='#ffeb3b',
-                                   weight='bold',
-                                   ha='center', 
-                                   va='center',
-                                   bbox=dict(boxstyle="round,pad=0.2", 
-                                           facecolor='#2a2a45', 
-                                           edgecolor='none',
-                                           alpha=0.8))
+                self._draw_edge_labels(pos)
             
             self.node_positions = pos
             
@@ -165,64 +128,252 @@ class StoryGraph(FigureCanvas):
         
         self.draw()
 
-    def _create_hierarchical_layout(self):
-        """Создаёт иерархический layout для графа"""
+    def _create_tree_layout(self):
+        """Создаёт древовидный layout с начальной сценой сверху"""
         try:
-            # Определяем уровни узлов
-            levels = {}
-            roots = [n for n in self.G.nodes() if self.G.in_degree(n) == 0]
+            # Находим стартовую сцену
+            start_scene = self._get_start_scene()
+            if not start_scene or start_scene not in self.G.nodes():
+                # Если стартовая сцена не найдена, берем узел без входящих рёбер
+                roots = [n for n in self.G.nodes() if self.G.in_degree(n) == 0]
+                start_scene = roots[0] if roots else list(self.G.nodes())[0]
             
-            for root in roots:
-                levels[root] = 0
-                queue = [(root, 0)]
-                visited = {root}
-                
-                while queue:
-                    node, level = queue.pop(0)
+            print(f"Стартовая сцена: {start_scene}")
+            
+            # Создаем уровни с помощью BFS
+            levels = {}
+            queue = [(start_scene, 0)]
+            visited = set()
+            max_level = 0
+            
+            while queue:
+                node, level = queue.pop(0)
+                if node in visited:
+                    continue
                     
-                    for neighbor in self.G.successors(node):
-                        if neighbor not in visited:
-                            levels[neighbor] = level + 1
-                            queue.append((neighbor, level + 1))
-                            visited.add(neighbor)
-                        elif levels[neighbor] < level + 1:
-                            levels[neighbor] = level + 1
+                visited.add(node)
+                levels[node] = level
+                max_level = max(max_level, level)
+                
+                print(f"Узел '{node}' на уровне {level}")
+                
+                # Получаем потомков текущего узла
+                successors = list(self.G.successors(node))
+                for successor in successors:
+                    if successor not in visited:
+                        queue.append((successor, level + 1))
+            
+            # Убеждаемся, что все узлы имеют уровень
+            all_nodes = set(self.G.nodes())
+            nodes_without_level = all_nodes - set(levels.keys())
+            
+            if nodes_without_level:
+                print(f"ПРЕДУПРЕЖДЕНИЕ: Узлы без уровня: {nodes_without_level}")
+                # Назначаем этим узлам уровень на основе их входящих связей
+                for node in nodes_without_level:
+                    predecessors = list(self.G.predecessors(node))
+                    if predecessors:
+                        # Берём максимальный уровень предшественников + 1
+                        pred_levels = [levels.get(pred, 0) for pred in predecessors]
+                        levels[node] = max(pred_levels) + 1
+                    else:
+                        # Если нет предшественников, ставим на уровень 0
+                        levels[node] = 0
+                    max_level = max(max_level, levels[node])
+            
+            print(f"Итоговые уровни: {levels}")
+            print(f"Максимальный уровень: {max_level}")
             
             # Группируем узлы по уровням
-            level_nodes = {}
+            level_groups = {}
             for node, level in levels.items():
-                if level not in level_nodes:
-                    level_nodes[level] = []
-                level_nodes[level].append(node)
+                if level not in level_groups:
+                    level_groups[level] = []
+                level_groups[level].append(node)
+            
+            print(f"Группы по уровням: {level_groups}")
             
             # Вычисляем позиции
             pos = {}
-            max_level = max(level_nodes.keys()) if level_nodes else 0
+            y_spacing = 2.0  # Расстояние между уровнями
             
-            for level, nodes in level_nodes.items():
-                num_nodes = len(nodes)
-                y_position = max_level - level  # Инвертируем для отображения сверху вниз
+            for level in range(max_level + 1):
+                nodes_at_level = level_groups.get(level, [])
+                num_nodes = len(nodes_at_level)
                 
-                for i, node in enumerate(nodes):
-                    if num_nodes == 1:
-                        x_position = 0
-                    else:
-                        # Распределяем узлы равномерно по горизонтали
-                        x_position = (i - (num_nodes - 1) / 2) * 3
+                if num_nodes == 0:
+                    continue
+                
+                # Y координата (сверху вниз)
+                y_position = -level * y_spacing
+                
+                if num_nodes == 1:
+                    # Если один узел, размещаем по центру
+                    pos[nodes_at_level[0]] = (0, y_position)
+                    print(f"Узел '{nodes_at_level[0]}' размещён в (0, {y_position})")
+                else:
+                    # Если несколько узлов, распределяем равномерно
+                    total_width = min(num_nodes * 2.5, 12)  # Ограничиваем максимальную ширину
                     
-                    pos[node] = (x_position, y_position)
+                    for i, node in enumerate(nodes_at_level):
+                        # Распределяем узлы симметрично относительно центра
+                        if num_nodes == 1:
+                            x_position = 0
+                        else:
+                            x_position = (i - (num_nodes - 1) / 2) * (total_width / (num_nodes - 1))
+                        
+                        pos[node] = (x_position, y_position)
+                        print(f"Узел '{node}' размещён в ({x_position}, {y_position})")
+            
+            print(f"Итоговые позиции: {pos}")
+            
+            # Проверяем, что все узлы имеют позиции
+            missing_pos = set(self.G.nodes()) - set(pos.keys())
+            if missing_pos:
+                print(f"ОШИБКА: Узлы без позиций: {missing_pos}")
+                # Добавляем недостающие позиции
+                for i, node in enumerate(missing_pos):
+                    pos[node] = (i * 2, -(max_level + 1) * y_spacing)
+                    print(f"Добавлена позиция для '{node}': {pos[node]}")
             
             return pos
             
         except Exception as e:
-            print(f"Ошибка в hierarchical layout: {e}")
+            print(f"Ошибка в tree layout: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fallback к spring layout
             return nx.spring_layout(self.G, seed=42, k=2, iterations=50)
+
+    def _optimize_positions(self, pos, levels):
+        """Оптимизирует позиции узлов для уменьшения пересечений рёбер"""
+        try:
+            print("Запуск оптимизации позиций...")
+            print(f"Входные позиции: {pos}")
+            print(f"Входные уровни: {levels}")
+            
+            # Проверяем, что все узлы из levels есть в pos
+            missing_in_pos = set(levels.keys()) - set(pos.keys())
+            if missing_in_pos:
+                print(f"ПРЕДУПРЕЖДЕНИЕ: Узлы из levels отсутствуют в pos: {missing_in_pos}")
+                return pos
+            
+            # Группируем узлы по уровням для оптимизации
+            level_groups = {}
+            for node, level in levels.items():
+                if level not in level_groups:
+                    level_groups[level] = []
+                level_groups[level].append(node)
+            
+            # Для каждого уровня (кроме первого) пытаемся оптимизировать позиции
+            for level in sorted(level_groups.keys())[1:]:
+                nodes_at_level = level_groups[level]
+                if len(nodes_at_level) <= 1:
+                    continue
+                
+                print(f"Оптимизируем уровень {level} с узлами: {nodes_at_level}")
+                
+                # Вычисляем "центр масс" родителей для каждого узла
+                node_parent_centers = {}
+                for node in nodes_at_level:
+                    if node not in pos:
+                        print(f"ПРЕДУПРЕЖДЕНИЕ: Узел '{node}' отсутствует в pos")
+                        continue
+                        
+                    parents = list(self.G.predecessors(node))
+                    if parents:
+                        parent_x_coords = []
+                        for parent in parents:
+                            if parent in pos:
+                                parent_x_coords.append(pos[parent][0])
+                            else:
+                                print(f"ПРЕДУПРЕЖДЕНИЕ: Родитель '{parent}' отсутствует в pos")
+                        
+                        if parent_x_coords:
+                            node_parent_centers[node] = sum(parent_x_coords) / len(parent_x_coords)
+                        else:
+                            node_parent_centers[node] = 0
+                    else:
+                        node_parent_centers[node] = 0
+                
+                print(f"Центры родителей: {node_parent_centers}")
+                
+                # Сортируем узлы по центру масс их родителей
+                valid_nodes = [node for node in nodes_at_level if node in pos and node in node_parent_centers]
+                sorted_nodes = sorted(valid_nodes, key=lambda n: node_parent_centers.get(n, 0))
+                
+                print(f"Отсортированные узлы: {sorted_nodes}")
+                
+                # Перераспределяем позиции
+                num_nodes = len(sorted_nodes)
+                if num_nodes > 0 and sorted_nodes[0] in pos:
+                    y_position = pos[sorted_nodes[0]][1]  # Сохраняем Y координату
+                    
+                    if num_nodes > 1:
+                        total_width = min(num_nodes * 2.5, 12)
+                        for i, node in enumerate(sorted_nodes):
+                            x_position = (i - (num_nodes - 1) / 2) * (total_width / (num_nodes - 1))
+                            pos[node] = (x_position, y_position)
+                            print(f"Обновлена позиция '{node}': ({x_position}, {y_position})")
+            
+            print(f"Оптимизированные позиции: {pos}")
+            
+        except Exception as e:
+            print(f"Ошибка при оптимизации позиций: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        return pos
+
+    def _draw_edge_labels(self, pos):
+        """Рисует подписи рёбер с улучшенным позиционированием для древовидной структуры"""
+        edge_label_positions = {}
+        
+        for (node1, node2), label in self.edge_labels.items():
+            if node1 in pos and node2 in pos:
+                x1, y1 = pos[node1]
+                x2, y2 = pos[node2] 
+                
+                # Для древовидной структуры размещаем подписи ближе к исходному узлу
+                # но сдвигаем в сторону для избежания наложений
+                edge_x = x1 + (x2 - x1) * 0.3  # 30% пути от исходного узла
+                edge_y = y1 + (y2 - y1) * 0.3
+                
+                # Добавляем горизонтальное смещение для избежания наложений
+                siblings = list(self.G.successors(node1))
+                if len(siblings) > 1:
+                    sibling_index = siblings.index(node2)
+                    horizontal_offset = (sibling_index - (len(siblings) - 1) / 2) * 0.3
+                    edge_x += horizontal_offset
+                
+                edge_label_positions[(node1, node2)] = (edge_x, edge_y)
+        
+        # Рисуем подписи рёбер
+        for (node1, node2), (x, y) in edge_label_positions.items():
+            label = self.edge_labels.get((node1, node2), '')
+            if label:
+                # Сокращаем длинные подписи
+                if len(label) > 18:
+                    label = label[:15] + "..."
+                
+                self.ax.text(x, y, label, 
+                           fontsize=8, 
+                           color='#ffeb3b',
+                           weight='bold',
+                           ha='center', 
+                           va='center',
+                           bbox=dict(boxstyle="round,pad=0.3", 
+                                   facecolor='#2a2a45', 
+                                   edgecolor='#4facfe',
+                                   alpha=0.9,
+                                   linewidth=1),
+                           zorder=5)  # Поверх всех элементов
 
     def _add_legend(self):
         """Добавляет легенду к графу"""
         legend_elements = [
             plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='#51cf66', 
-                      markersize=12, label='Начало', markeredgecolor='white', markeredgewidth=2),
+                      markersize=14, label='Начало', markeredgecolor='white', markeredgewidth=2),
             plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='#4dabf7', 
                       markersize=10, label='Сцена', markeredgecolor='white', markeredgewidth=2),
             plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='#ff6b6b', 
@@ -255,8 +406,77 @@ class StoryGraph(FigureCanvas):
             # Добавляем рёбра с подписями
             for scene in scenes:
                 scene_id = scene.get('id', '')
+        except:
+            pass
+    def update_graph_from_story(self, story_data):
+        """Обновляет граф на основе данных истории"""
+        print(f"=== ОТЛАДКА ГРАФА ===")
+        print(f"Получены данные истории: {type(story_data)}")
+        print(f"Ключи в story_data: {list(story_data.keys()) if isinstance(story_data, dict) else 'Не словарь'}")
+        
+        self.story_data = story_data
+        self.G.clear()
+        self.edge_labels.clear()
+        
+        try:
+            scenes = story_data.get('scenes', [])
+            print(f"Найдено сцен: {len(scenes)}")
+            
+            if scenes:
+                print("Первые 3 сцены:")
+                for i, scene in enumerate(scenes[:3]):
+                    print(f"  Сцена {i+1}: {scene}")
+            
+            # Добавляем узлы
+            added_nodes = []
+            for scene in scenes:
+                scene_id = scene.get('id', '')
+                print(f"Обрабатываем сцену с ID: '{scene_id}'")
+                if scene_id:
+                    self.G.add_node(scene_id)
+                    added_nodes.append(scene_id)
+                else:
+                    print(f"  ПРЕДУПРЕЖДЕНИЕ: Сцена без ID: {scene}")
+            
+            print(f"Добавлено узлов: {added_nodes}")
+            
+            # Добавляем рёбра с подписями
+            added_edges = []
+            scene_ids = [s.get('id') for s in scenes if s.get('id')]
+            
+            for scene in scenes:
+                scene_id = scene.get('id', '')
                 choices = scene.get('choices', [])
+                print(f"Сцена '{scene_id}' имеет {len(choices)} выборов")
                 
+                for choice in choices:
+                    next_scene = choice.get('next_scene_id', '')
+                    choice_text = choice.get('text', '')
+                    
+                    print(f"  Выбор: '{choice_text}' -> '{next_scene}'")
+                    
+                    if next_scene and next_scene in scene_ids:
+                        self.G.add_edge(scene_id, next_scene)
+                        self.edge_labels[(scene_id, next_scene)] = choice_text
+                        added_edges.append((scene_id, next_scene))
+                    else:
+                        print(f"    ПРЕДУПРЕЖДЕНИЕ: Некорректная связь {scene_id} -> {next_scene}")
+            
+            print(f"Добавлено рёбер: {added_edges}")
+            print(f"Итого граф: {len(self.G.nodes())} узлов, {len(self.G.edges())} рёбер")
+            print(f"Узлы графа: {list(self.G.nodes())}")
+            print(f"Рёбра графа: {list(self.G.edges())}")
+            
+            # Вызываем отрисовку
+            print("Вызываем draw_graph()...")
+            self.draw_graph()
+            print("draw_graph() завершён")
+            
+        except Exception as e:
+            print(f"Ошибка при обновлении графа: {e}")
+            import traceback
+            traceback.print_exc()
+            if 'choices' in locals():
                 for choice in choices:
                     next_scene = choice.get('next_scene_id', '')
                     choice_text = choice.get('text', '')
