@@ -26,6 +26,9 @@ class StoryGraph(FigureCanvas):
         
         # Хранилище для позиций узлов в пикселях экрана
         self.node_screen_positions = {}
+        
+        # Переменная для хранения последнего tooltip
+        self.last_tooltip_node = None
 
     def _setup_colormap(self):
         colors = ["#4facfe", "#00f2fe", "#a6c1ee", "#fbc2eb", "#ff9a9e"]
@@ -33,6 +36,7 @@ class StoryGraph(FigureCanvas):
 
     def draw_graph(self):
         self.ax.clear()
+        
         if self.G.number_of_nodes() > 0:
             try:
                 # Создаём иерархический layout для лучшего отображения
@@ -83,25 +87,16 @@ class StoryGraph(FigureCanvas):
                 min_target_margin=15
             )
             
-            # Подписи узлов
+            # Подписи узлов - просто номера сцен темным шрифтом
             labels = {}
-            for node in self.G.nodes():
-                scene = self._find_scene_by_id(node)
-                if scene:
-                    title = scene.get('title', node)
-                    if len(title) > 12:
-                        title = title[:10] + "..."
-                    labels[node] = title
-                else:
-                    label = str(node)
-                    if len(label) > 12:
-                        label = label[:10] + "..."
-                    labels[node] = label
+            node_list = list(self.G.nodes())
+            for i, node in enumerate(node_list, 1):
+                labels[node] = str(i)
                     
             nx.draw_networkx_labels(
                 self.G, pos, labels, ax=self.ax,
-                font_size=8,
-                font_color="#ffffff",
+                font_size=12,
+                font_color="#000000",  # Темный шрифт
                 font_family="Segoe UI",
                 font_weight="bold"
             )
@@ -161,6 +156,7 @@ class StoryGraph(FigureCanvas):
         self.fig.patch.set_facecolor('#1e1e2d')
         self.ax.set_xticks([])
         self.ax.set_yticks([])
+        self.ax.axis('off')  # Полностью скрываем оси
         for spine in self.ax.spines.values():
             spine.set_visible(False)
             
@@ -300,7 +296,9 @@ class StoryGraph(FigureCanvas):
     def on_hover(self, event):
         """Обработчик наведения мыши для показа tooltip"""
         if event.inaxes != self.ax:
-            QToolTip.hideText()
+            if self.last_tooltip_node is not None:
+                QToolTip.hideText()
+                self.last_tooltip_node = None
             return
             
         if not hasattr(self, 'node_screen_positions') or not self.node_screen_positions:
@@ -310,23 +308,32 @@ class StoryGraph(FigureCanvas):
         mouse_x, mouse_y = event.x, event.y
         
         # Проверяем каждый узел
+        current_hover_node = None
         for node, (screen_x, screen_y) in self.node_screen_positions.items():
             # Вычисляем расстояние от мыши до центра узла
             distance = np.sqrt((screen_x - mouse_x)**2 + (screen_y - mouse_y)**2)
             
-            # Если мышь находится над узлом (радиус ~25 пикселей)
+            # Если мышь находится над узлом (радиус ~35 пикселей)
             if distance < 35:
-                scene = self._find_scene_by_id(node)
+                current_hover_node = node
+                break
+        
+        # Показываем/скрываем tooltip только при изменении узла
+        if current_hover_node != self.last_tooltip_node:
+            QToolTip.hideText()
+            
+            if current_hover_node is not None:
+                scene = self._find_scene_by_id(current_hover_node)
                 if scene:
                     tooltip_text = self._create_tooltip_text(scene)
                     cursor_pos = QCursor.pos()
+                    # Создаем простой текстовый tooltip без HTML
                     QToolTip.showText(cursor_pos, tooltip_text, self)
-                    return
-                    
-        QToolTip.hideText()
+            
+            self.last_tooltip_node = current_hover_node
 
     def _create_tooltip_text(self, scene):
-        """Создаёт текст для tooltip"""
+        """Создаёт простой текстовый tooltip без HTML"""
         title = scene.get('title', 'Без названия')
         description = scene.get('description', 'Описание отсутствует')
         characters = scene.get('characters', [])
@@ -334,31 +341,31 @@ class StoryGraph(FigureCanvas):
         choices = scene.get('choices', [])
         
         # Ограничиваем длину описания для tooltip
-        if len(description) > 200:
-            description = description[:197] + "..."
+        if len(description) > 150:
+            description = description[:147] + "..."
         
-        tooltip_parts = [f"<b>{title}</b>"]
+        tooltip_parts = [f"СЦЕНА: {title}"]
         
         if description:
-            tooltip_parts.append(f"<br><br><i>{description}</i>")
+            tooltip_parts.append(f"\nОПИСАНИЕ: {description}")
         
         if characters:
             char_text = ', '.join(characters[:3])  # Показываем максимум 3 персонажа
             if len(characters) > 3:
                 char_text += f" и ещё {len(characters) - 3}..."
-            tooltip_parts.append(f"<br><br><b>Персонажи:</b> {char_text}")
+            tooltip_parts.append(f"\nПЕРСОНАЖИ: {char_text}")
         
-        if choices:
-            tooltip_parts.append(f"<br><br><b>Доступные действия:</b>")
+        if choices and not is_ending:
+            tooltip_parts.append("\nДОСТУПНЫЕ ДЕЙСТВИЯ:")
             for i, choice in enumerate(choices[:3]):  # Показываем максимум 3 выбора
                 choice_text = choice.get('text', '')
                 if choice_text:
-                    tooltip_parts.append(f"<br>• {choice_text}")
+                    tooltip_parts.append(f"• {choice_text}")
             if len(choices) > 3:
-                tooltip_parts.append(f"<br>• ... и ещё {len(choices) - 3}")
+                tooltip_parts.append(f"• ... и ещё {len(choices) - 3}")
         
         if is_ending:
-            tooltip_parts.append("<br><br><b>🏁 КОНЦОВКА</b>")
+            tooltip_parts.append("\nКОНЦОВКА")
         
         return ''.join(tooltip_parts)
 
