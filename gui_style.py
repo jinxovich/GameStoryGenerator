@@ -111,7 +111,6 @@ style = """
         border-radius: 6px;
         border: 1px solid #3a3a5a;
     }
-    /* --- НОВЫЙ БЛОК ДЛЯ ИСПРАВЛЕНИЯ ПОДСКАЗОК --- */
     QToolTip {
         background-color: #f0f0f0; /* Светлый фон для контраста */
         color: #1e1e2d; /* Темный текст */

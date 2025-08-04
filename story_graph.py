@@ -247,10 +247,10 @@ class StoryGraph(FigureCanvas):
                                font_size=11, font_color="white", font_weight="bold")
 
         if self.selected_node:
-            outgoing_edges = self.G.out_edges(self.selected_node)
-            labels_to_draw = {edge: self.edge_labels[edge] for edge in outgoing_edges if edge in self.edge_labels}
-            nx.draw_networkx_edge_labels(self.G, self.node_positions, edge_labels=labels_to_draw, ax=self.ax, font_color='#FFD700',
-                                         font_size=9, font_weight='bold', bbox=dict(facecolor='#3a3a5a', alpha=0.9, edgecolor='none', boxstyle='round,pad=0.3'))
+        #     outgoing_edges = self.G.out_edges(self.selected_node)
+        #     labels_to_draw = {edge: self.edge_labels[edge] for edge in outgoing_edges if edge in self.edge_labels}
+        #     nx.draw_networkx_edge_labels(self.G, self.node_positions, edge_labels=labels_to_draw, ax=self.ax, font_color='#FFD700',
+        #                                  font_size=9, font_weight='bold', bbox=dict(facecolor='#3a3a5a', alpha=0.9, edgecolor='none', boxstyle='round,pad=0.3'))
             nx.draw_networkx_nodes(self.G, self.node_positions, nodelist=[self.selected_node], ax=self.ax, node_size=2600, node_color='none', edgecolors='#FFD700', linewidths=3)
 
         self.draw()

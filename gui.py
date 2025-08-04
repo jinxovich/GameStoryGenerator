@@ -60,7 +60,7 @@ class MainWindow(QWidget):
         self.desc_input = self._create_labeled_widget(QTextEdit, "Описание истории:", 150)
         self.genre_input = self._create_labeled_widget(QTextEdit, "Жанр:", 80)
         self.genre_input.widget.setText("RPG") # Установка значения по умолчанию
-        self.heroes_input = self._create_labeled_widget(QTextEdit, "Персонажи (через запятую):", 80)
+        self.heroes_input = self._create_labeled_widget(QTextEdit, "Персонажи (через точку с запятой):", 80)
 
         # Выпадающие списки
         self.mood_combo = self._create_labeled_combo("Настроение:", settings.MOODS)
@@ -147,7 +147,7 @@ class MainWindow(QWidget):
         story_obj = StoryObject(
             description=self.desc_input.widget.toPlainText(),
             genre=self.genre_input.widget.toPlainText(),
-            heroes=[h.strip() for h in self.heroes_input.widget.toPlainText().split(',')],
+            heroes=[h.strip() for h in self.heroes_input.widget.toPlainText().split(';')],
             mood=self.mood_combo.widget.currentData()
         )
         
