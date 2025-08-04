@@ -2,14 +2,11 @@ import settings
 
 class StoryObject:
     """Класс для хранения всех параметров, необходимых для генерации истории."""
-    def __init__(self, description, genre, heroes, narrative_style, mood, theme, conflict):
+    def __init__(self, description, genre, heroes, mood):
         self.description = description
         self.genre = genre
         self.heroes = heroes if isinstance(heroes, list) else [h.strip() for h in heroes.split(',')]
-        self.narrative_style = narrative_style
         self.mood = mood
-        self.theme = theme
-        self.conflict = conflict
 
     def validate(self):
         """Проверяет, что все обязательные поля заполнены."""

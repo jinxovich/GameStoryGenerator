@@ -60,18 +60,15 @@ class MainWindow(QWidget):
         # Поля ввода
         self.desc_input = self._create_labeled_widget(QTextEdit, "Описание истории:", 150)
         self.genre_input = self._create_labeled_widget(QTextEdit, "Жанр:", 80)
+        self.genre_input.widget.setText("RPG") # Установка значения по умолчанию
         self.heroes_input = self._create_labeled_widget(QTextEdit, "Персонажи (через запятую):", 80)
 
         # Выпадающие списки
-        self.narrative_style_combo = self._create_labeled_combo("Стиль повествования:", settings.NARRATIVE_STYLES)
         self.mood_combo = self._create_labeled_combo("Настроение:", settings.MOODS)
-        self.theme_combo = self._create_labeled_combo("Тема:", settings.THEMES)
-        self.conflict_combo = self._create_labeled_combo("Конфликт:", settings.CONFLICTS)
 
         # Добавление виджетов в layout
         for widget in [self.desc_input, self.genre_input, self.heroes_input,
-                       self.narrative_style_combo, self.mood_combo,
-                       self.theme_combo, self.conflict_combo]:
+                       self.mood_combo]:
             left_layout.addWidget(widget)
         
         left_layout.addStretch()
@@ -152,10 +149,7 @@ class MainWindow(QWidget):
             description=self.desc_input.widget.toPlainText(),
             genre=self.genre_input.widget.toPlainText(),
             heroes=[h.strip() for h in self.heroes_input.widget.toPlainText().split(',')],
-            narrative_style=self.narrative_style_combo.widget.currentData(),
-            mood=self.mood_combo.widget.currentData(),
-            theme=self.theme_combo.widget.currentData(),
-            conflict=self.conflict_combo.widget.currentData()
+            mood=self.mood_combo.widget.currentData()
         )
         
         error_msg = story_obj.validate()
@@ -170,7 +164,7 @@ class MainWindow(QWidget):
         """Обновляет UI после получения сгенерированной истории."""
         self.current_story = story_data
         self.graph_canvas.update_graph(story_data)
-        self.info_label.setText(f"История '{story_data.get('title', 'Без названия')}' сгенерирована.")
+        self.info_label.setText(f"История сгенерирована.")
         self.stats_label.setText(self.graph_canvas.get_graph_statistics())
         self.export_btn.setEnabled(True)
         self.set_ui_for_generation(False)
@@ -198,9 +192,7 @@ class MainWindow(QWidget):
         from PyQt5.QtWidgets import QFileDialog
         import json
 
-        filename, _ = QFileDialog.getSaveFileName(self, "Сохранить историю",
-            f"{self.current_story.get('title', 'story').replace(' ', '_')}.json",
-            "JSON (*.json)")
+        filename, _ = QFileDialog.getSaveFileName(self, "Сохранить историю", "story.json", "JSON (*.json)")
         
         if filename:
             try:

@@ -109,6 +109,7 @@ async def get_story_from_ai(story_object: StoryObject) -> dict:
                       ]
                     }
                 3.  **ЗАПЯТЫЕ**: Между КАЖДЫМ объектом в массиве (например, между `}` и `{`) ДОЛЖНА стоять запятая.
+                4. Не добавляй в JSON title и description В САМОМ НАЧАЛЕ
                 
                 СТРОГИЕ СТРУКТУРНЫЕ ОГРАНИЧЕНИЯ:
                 - **ID СЦЕН**: `scene_id` — это **ЧИСЛО В ВИДЕ СТРОКИ** (например, "1", "2", "3"). Стартовая сцена **ВСЕГДА** имеет `scene_id: "1"`.
@@ -130,8 +131,6 @@ async def get_story_from_ai(story_object: StoryObject) -> dict:
                 - **Описание**: {story_object.description}
                 - **Персонажи**: {', '.join(story_object.heroes)}
                 - **Настроение**: {story_object.mood}
-                - **Тема**: {story_object.theme}
-                - **Конфликт**: {story_object.conflict}
 
                 Напоминаю: единый JSON-массив, `scene_id` - это числа, движение сюжета только вперед, 2 концовки (хорошая/плохая).
                 """
