@@ -11,7 +11,6 @@ from gui_style import style
 from StoryObject import StoryObject
 
 class MainWindow(QWidget):
-    """Основное окно приложения."""
     storyRequested = pyqtSignal(StoryObject)
 
     def __init__(self):
@@ -38,7 +37,6 @@ class MainWindow(QWidget):
         main_layout.addWidget(splitter)
 
     def create_left_panel(self):
-        """Создает левую панель с полями для ввода параметров истории."""
         self.left_container = QFrame()
         self.left_container.setObjectName("leftContainer")
         self.left_container.setMinimumWidth(400)
@@ -53,26 +51,21 @@ class MainWindow(QWidget):
         left_layout.setSpacing(15)
         left_layout.setAlignment(Qt.AlignTop)
 
-        # Заголовки
         left_layout.addWidget(QLabel("Game Story Generator", objectName="header"))
 
-        # Поля ввода
         self.desc_input = self._create_labeled_widget(QTextEdit, "Описание истории:", 150)
         self.genre_input = self._create_labeled_widget(QTextEdit, "Жанр:", 80)
-        self.genre_input.widget.setText("RPG") # Установка значения по умолчанию
+        self.genre_input.widget.setText("RPG")
         self.heroes_input = self._create_labeled_widget(QTextEdit, "Персонажи (через точку с запятой):", 80)
 
-        # Выпадающие списки
         self.mood_combo = self._create_labeled_combo("Настроение:", settings.MOODS)
 
-        # Добавление виджетов в layout
         for widget in [self.desc_input, self.genre_input, self.heroes_input,
                        self.mood_combo]:
             left_layout.addWidget(widget)
         
         left_layout.addStretch()
 
-        # Кнопка генерации
         self.generate_btn = QPushButton("Сгенерировать историю", objectName="actionButton")
         self.generate_btn.setMinimumHeight(50)
         self.generate_btn.clicked.connect(self.on_generate_button_clicked)
@@ -85,7 +78,6 @@ class MainWindow(QWidget):
 
 
     def create_right_panel(self):
-        """Создает правую панель для отображения графа и статистики."""
         self.right_container = QFrame()
         right_layout = QVBoxLayout(self.right_container)
         right_layout.setContentsMargins(15, 15, 15, 15)
@@ -112,7 +104,6 @@ class MainWindow(QWidget):
         right_layout.addLayout(footer_layout)
         
     def _create_labeled_widget(self, widget_class, label_text, height=None):
-        """Вспомогательный метод для создания метки и виджета."""
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -123,13 +114,11 @@ class MainWindow(QWidget):
         if height:
             widget.setMinimumHeight(height)
         
-        # Сохраняем ссылку на сам виджет для легкого доступа
         container.widget = widget
         layout.addWidget(widget)
         return container
 
     def _create_labeled_combo(self, label_text, settings_dict):
-        """Создает выпадающий список с данными из словаря настроек."""
         container = self._create_labeled_widget(QComboBox, label_text)
         combo = container.widget
         
@@ -143,7 +132,6 @@ class MainWindow(QWidget):
         return container
 
     def on_generate_button_clicked(self):
-        """Собирает данные из полей и отправляет сигнал для генерации истории."""
         story_obj = StoryObject(
             description=self.desc_input.widget.toPlainText(),
             genre=self.genre_input.widget.toPlainText(),
@@ -160,7 +148,6 @@ class MainWindow(QWidget):
         self.storyRequested.emit(story_obj)
 
     def set_story_data(self, story_data):
-        """Обновляет UI после получения сгенерированной истории."""
         self.current_story = story_data
         self.graph_canvas.update_graph(story_data)
         self.info_label.setText(f"История сгенерирована.")
@@ -169,7 +156,6 @@ class MainWindow(QWidget):
         self.set_ui_for_generation(False)
 
     def handle_generation_error(self, message):
-        """Обрабатывает ошибку генерации, обновляя UI."""
         self.show_message("Ошибка генерации", message, QMessageBox.Critical)
         self.graph_canvas.draw_empty_graph(f"Ошибка:\n{message}")
         self.info_label.setText("Произошла ошибка.")
@@ -177,7 +163,6 @@ class MainWindow(QWidget):
         self.set_ui_for_generation(False)
 
     def set_ui_for_generation(self, is_generating):
-        """Переключает состояние UI в режим генерации или ожидания."""
         self.generate_btn.setEnabled(not is_generating)
         self.generate_btn.setText("Генерация..." if is_generating else "Сгенерировать историю")
         if is_generating:
@@ -185,7 +170,6 @@ class MainWindow(QWidget):
             self.graph_canvas.draw_empty_graph("Генерация схемы сюжета...")
 
     def export_story(self):
-        """Экспортирует текущую историю в файл JSON."""
         if not self.current_story: return
         
         from PyQt5.QtWidgets import QFileDialog
@@ -202,6 +186,5 @@ class MainWindow(QWidget):
                 self.show_message("Ошибка экспорта", f"Не удалось сохранить файл: {e}", QMessageBox.Critical)
 
     def show_message(self, title, text, icon):
-        """Отображает диалоговое окно с сообщением."""
         msg_box = QMessageBox(icon, title, text, QMessageBox.Ok, self)
         msg_box.exec_()

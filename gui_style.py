@@ -1,4 +1,3 @@
-# Централизованные стили для приложения
 style = """
     QWidget {
         background-color: #1e1e2d;

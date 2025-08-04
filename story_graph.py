@@ -7,12 +7,156 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QTextEdit, QPushButton,
                              QHBoxLayout, QToolTip)
 from PyQt5.QtGui import QCursor
 import matplotlib.patches as mpatches
+import aiohttp
+import json
+import re
+
+from config import YANDEX_ID_KEY, YANDEX_API_KEY
+from StoryObject import StoryObject
+
+def clean_json_response(text: str) -> str:
+    text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\s*```$', '', text, flags=re.MULTILINE)
+    text = text.strip()
+    
+    start = text.find('[')
+    end = text.rfind(']')
+    
+    if start == -1 or end == -1 or end <= start:
+        raise json.JSONDecodeError("Не удалось найти валидный JSON-массив в ответе.", text, 0)
+        
+    content = text[start+1:end].strip()
+    
+    fixed_content = re.sub(r'\}\s*\{', '}, {', content, flags=re.DOTALL)
+    
+    return f"[{fixed_content}]"
+
+def convert_ai_array_to_graph_format(scene_list: list[dict], story_object: StoryObject) -> dict:
+    if not scene_list:
+        raise ValueError("AI вернул пустой список сцен.")
+        
+    scene_id_to_id = {}
+    formatted_scenes = []
+    
+    for i, scene_data in enumerate(scene_list):
+        original_scene_id = scene_data.get('scene_id', str(i+1))
+        new_id = str(i+1)
+        scene_id_to_id[original_scene_id] = new_id
+        
+        formatted_scenes.append({
+            'scene_id': new_id,
+            'text': scene_data.get('text', scene_data.get('description', 'Описание отсутствует.')),
+            'choices': [{
+                'text': c.get('text', '...'),
+                'next_scene': c.get('next_scene', c.get('next_scene', ''))
+            } for c in scene_data.get('choices', [])],
+            'is_ending': not scene_data.get('choices', not scene_data.get('is_ending', False))
+        })
+    
+    for scene in formatted_scenes:
+        for choice in scene['choices']:
+            original_next_scene_id = choice['next_scene']
+            if original_next_scene_id in scene_id_to_id:
+                choice['next_scene'] = scene_id_to_id[original_next_scene_id]
+    
+    start_scene_id = scene_id_to_id.get("1", "1")
+    
+    title_text = story_object.description[:50]
+    if len(story_object.description) > 50:
+        title_text += "..."
+        
+    return {
+        'title': title_text,
+        'description': story_object.description,
+        'start_scene': start_scene_id,
+        'scenes': formatted_scenes
+    }
+
+async def get_story_from_ai(story_object: StoryObject) -> dict:
+    if not YANDEX_API_KEY or not YANDEX_ID_KEY:
+        raise ValueError("YANDEX_API_KEY и YANDEX_ID_KEY должны быть установлены в .env файле.")
+
+    prompt = {
+        "modelUri": f"gpt://{YANDEX_ID_KEY}/yandexgpt-lite",
+        "completionOptions": {
+            "stream": False,
+            "temperature": 0.75,
+            "maxTokens": "16000"
+        },
+        "messages": [
+            {
+                "role": "system",
+                "text": """Ты — профессиональный сценарист для RPG.
+                Твоя задача — сгенерировать ЕДИНЫЙ JSON-МАССИВ, где каждый элемент — это одна сцена квеста.
+                
+                КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА:
+                1.  **ФОРМАТ ВЫВОДА**: Верни ТОЛЬКО валидный JSON-массив `[ ... ]`. Без комментариев и markdown.
+                2.  **СТРУКТУРА ОБЪЕКТА**: Каждый объект в массиве должен иметь СТРОГУЮ структуру:
+                    {
+                      "scene_id": "1",  
+                      "text": "Полное, насыщенное описание сцены (80-150 слов).",
+                      "choices": [
+                        {"text": "Краткое описание выбора (2-5 слов)", "next_scene": "2"}
+                      ]
+                    }
+                3.  **ЗАПЯТЫЕ**: Между КАЖДЫМ объектом в массиве (например, между `}` и `{`) ДОЛЖНА стоять запятая.
+                4.  **ID СЦЕН**: scene_id должны быть последовательными числами от 1 до N в виде строк ("1", "2", "3" и т.д.)
+                5.  **КОНЦОВКИ**: Создай минимум две концовки (сцены без choices)
+                6.  **ВЕТВЛЕНИЕ**: Создай ветвление сюжета с уникальными путями
+                
+                ТРЕБОВАНИЯ К КОНТЕНТУ:
+                -   **Жанр**: Строго Ролевая игра (RPG).
+                -   **Язык**: Русский.
+                -   **Количество сцен**: От 6 до 12.
+                """
+            },
+            {
+                "role": "user",
+                "text": f"""Создай RPG квест по параметрам:
+                - **Описание**: {story_object.description}
+                - **Жанр**: {story_object.genre}
+                - **Персонажи**: {', '.join(story_object.heroes)}
+                - **Настроение**: {story_object.mood}
+                """
+            }
+        ]
+    }
+
+    url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Api-Key {YANDEX_API_KEY}"
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=prompt, timeout=120) as response:
+                response.raise_for_status()
+                raw_response = await response.text()
+                
+                try:
+                    result_data = json.loads(raw_response)
+                    generated_text = result_data["result"]["alternatives"][0]["message"]["text"]
+                except (json.JSONDecodeError, KeyError):
+                    generated_text = raw_response
+
+                cleaned_json_text = clean_json_response(generated_text)
+                scene_list = json.loads(cleaned_json_text)
+                
+                return convert_ai_array_to_graph_format(scene_list, story_object)
+
+    except aiohttp.ClientError as e:
+        raise ConnectionError(f"Ошибка сети при обращении к AI: {e}")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"AI вернул некорректный JSON, который не удалось исправить. Ошибка: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Неожиданная ошибка при работе с AI: {e}")
 
 class SceneDetailDialog(QDialog):
     def __init__(self, scene_data, parent=None):
         super().__init__(parent)
         self.scene_data = scene_data
-        self.setWindowTitle(f"Детали сцены: {scene_data.get('id', 'N/A')}")
+        self.setWindowTitle(f"Детали сцены: {scene_data.get('scene_id', 'N/A')}")
         self.setMinimumSize(500, 400)
         self.setStyleSheet("""
             QDialog { background-color: #2d2d44; border: 1px solid #4a4a6a; }
@@ -30,7 +174,7 @@ class SceneDetailDialog(QDialog):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        description_text = self.scene_data.get('description', 'Описание отсутствует.')
+        description_text = self.scene_data.get('text', 'Описание отсутствует.')
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
         self.text_edit.setText(description_text)
@@ -62,56 +206,17 @@ class StoryGraph(FigureCanvas):
 
         self.fig.canvas.mpl_connect('button_press_event', self.on_click)
         self.fig.canvas.mpl_connect('motion_notify_event', self.on_hover)
-        #self.fig.canvas.mpl_connect('scroll_event', self.on_scroll)
         self.fig.canvas.mpl_connect('button_press_event', self.on_press)
         self.fig.canvas.mpl_connect('button_release_event', self.on_release)
-        # self.fig.canvas.mpl_connect('motion_notify_event', self.on_motion)
 
-    def on_scroll(self, event):
-        if not event.inaxes:
-            return
-
-        scale_factor = 1.1
-        cur_xlim = self.ax.get_xlim()
-        cur_ylim = self.ax.get_ylim()
-        xdata = event.xdata
-        ydata = event.ydata
-
-        if event.button == 'up':
-            new_width = (cur_xlim[1] - cur_xlim[0]) / scale_factor
-            new_height = (cur_ylim[1] - cur_ylim[0]) / scale_factor
-        elif event.button == 'down':
-            new_width = (cur_xlim[1] - cur_xlim[0]) * scale_factor
-            new_height = (cur_ylim[1] - cur_ylim[0]) * scale_factor
-        else:
-            return
-
-        rel_x = (xdata - cur_xlim[0]) / (cur_xlim[1] - cur_xlim[0])
-        rel_y = (ydata - cur_ylim[0]) / (cur_ylim[1] - cur_ylim[0])
-
-        self.ax.set_xlim([xdata - new_width * rel_x, xdata + new_width * (1 - rel_x)])
-        self.ax.set_ylim([ydata - new_height * rel_y, ydata + new_height * (1 - rel_y)])
-        self.draw()
-
+    
     def on_press(self, event):
         if event.inaxes != self.ax:
             return
         self.press = (self.ax.get_xlim(), self.ax.get_ylim(), event.xdata, event.ydata)
         self.ax.figure.canvas.draw()
 
-    # def on_motion(self, event):
-        # if self.press is None:
-        #     return
-        # if event.inaxes != self.ax:
-        #     return
-        
-        # xlim, ylim, xpress, ypress = self.press
-        # dx = event.xdata - xpress
-        # dy = event.ydata - ypress
-        
-        # self.ax.set_xlim(xlim[0] - dx, xlim[1] - dx)
-        # self.ax.set_ylim(ylim[0] - dy, ylim[1] - dy)
-        # self.ax.figure.canvas.draw()
+
 
     def on_release(self, event):
         self.press = None
@@ -137,14 +242,14 @@ class StoryGraph(FigureCanvas):
             self.draw_empty_graph("В сгенерированной истории нет сцен."); return
 
         for scene in scenes:
-            self.G.add_node(scene['id'])
+            self.G.add_node(scene['scene_id'])
 
         for scene in scenes:
             for choice in scene.get('choices', []):
-                next_scene_id = choice.get('next_scene_id')
+                next_scene_id = choice.get('next_scene')
                 if next_scene_id and self.G.has_node(next_scene_id):
-                    self.G.add_edge(scene['id'], next_scene_id)
-                    self.edge_labels[(scene['id'], next_scene_id)] = choice.get('text', '...')
+                    self.G.add_edge(scene['scene_id'], next_scene_id)
+                    self.edge_labels[(scene['scene_id'], next_scene_id)] = choice.get('text', '...')
 
         self.redraw_graph()
 
@@ -247,10 +352,6 @@ class StoryGraph(FigureCanvas):
                                font_size=11, font_color="white", font_weight="bold")
 
         if self.selected_node:
-        #     outgoing_edges = self.G.out_edges(self.selected_node)
-        #     labels_to_draw = {edge: self.edge_labels[edge] for edge in outgoing_edges if edge in self.edge_labels}
-        #     nx.draw_networkx_edge_labels(self.G, self.node_positions, edge_labels=labels_to_draw, ax=self.ax, font_color='#FFD700',
-        #                                  font_size=9, font_weight='bold', bbox=dict(facecolor='#3a3a5a', alpha=0.9, edgecolor='none', boxstyle='round,pad=0.3'))
             nx.draw_networkx_nodes(self.G, self.node_positions, nodelist=[self.selected_node], ax=self.ax, node_size=2600, node_color='none', edgecolors='#FFD700', linewidths=3)
 
         self.draw()
@@ -300,7 +401,7 @@ class StoryGraph(FigureCanvas):
 
         if min_dist_sq < 0.5:
             if self.selected_node == clicked_node:
-                scene = next((s for s in self.story_data['scenes'] if s['id'] == clicked_node), None)
+                scene = next((s for s in self.story_data['scenes'] if s['scene_id'] == clicked_node), None)
                 if scene:
                     dialog = SceneDetailDialog(scene, parent=self)
                     dialog.exec_()
