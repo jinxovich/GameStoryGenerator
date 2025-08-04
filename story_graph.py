@@ -57,6 +57,7 @@ class StoryGraph(FigureCanvas):
         self.edge_labels = {}
         self.selected_node = None
         self.hovered_edge = None
+        self.edge_paths = {}
 
         self.draw_empty_graph("Ожидание генерации истории...")
 
@@ -176,7 +177,7 @@ class StoryGraph(FigureCanvas):
 
         if not self.G.nodes:
             self.draw_empty_graph("Граф пуст."); return
-
+            
         self.node_positions = self._custom_hierarchical_layout()
 
         if self.node_positions:
@@ -193,22 +194,37 @@ class StoryGraph(FigureCanvas):
         start_node = self.story_data.get('start_scene')
         end_nodes = [n for n, d in self.G.out_degree() if d == 0]
         node_colors = ['#51cf66' if n == start_node else '#ff6b6b' if n in end_nodes else '#4dabf7' for n in self.G.nodes()]
-        
-        edge_colors = ['#FFD700' if edge == self.hovered_edge else '#aaaaaa' for edge in self.G.edges()]
-        edge_widths = [2.5 if edge == self.hovered_edge else 1.5 for edge in self.G.edges()]
 
-        # --- ОБНОВЛЕННЫЙ БЛОК: РИСУЕМ РЕБРА С БОЛЬШИМИ СТРЕЛКАМИ ---
-        nx.draw_networkx_edges(
-            self.G, self.node_positions, ax=self.ax,
-            edge_color=edge_colors,
-            width=edge_widths,
-            connectionstyle='arc3,rad=0.1',
-            arrowstyle='->',
-            arrowsize=30  # Увеличенный размер для лучшей видимости
-        )
-        
-        nx.draw_networkx_nodes(self.G, self.node_positions, ax=self.ax, node_size=2500, node_color=node_colors, edgecolors="white", linewidths=1.5)
-        nx.draw_networkx_labels(self.G, self.node_positions, {n: str(n) for n in self.G.nodes()}, font_size=11, font_color="white", font_weight="bold")
+        # Сначала рисуем ребра с четкими направленными стрелками
+        self.edge_paths.clear()
+        for edge in self.G.edges():
+            source, target = edge
+            pos_s = self.node_positions[source]
+            pos_t = self.node_positions[target]
+            
+            edge_color = '#FFD700' if edge == self.hovered_edge else '#aaaaaa'
+            edge_width = 3.0 if edge == self.hovered_edge else 2.0
+
+            # Создаем направленную стрелку с четким наконечником
+            arrow = mpatches.FancyArrowPatch(
+                posA=pos_s, posB=pos_t, 
+                connectionstyle=f"arc3,rad=0.1",
+                color=edge_color, 
+                linewidth=edge_width, 
+                arrowstyle='-|>',  # Более четкий стиль стрелки
+                mutation_scale=30,  # Увеличенный размер наконечника
+                shrinkA=30,  # Отступ от исходной ноды (радиус узла + отступ)
+                shrinkB=30,  # Отступ до целевой ноды
+                alpha=0.8
+            )
+            self.ax.add_patch(arrow)
+            self.edge_paths[edge] = arrow.get_path().vertices
+
+        # Рисуем узлы поверх ребер
+        nx.draw_networkx_nodes(self.G, self.node_positions, ax=self.ax, node_size=2500, 
+                              node_color=node_colors, edgecolors="white", linewidths=1.5)
+        nx.draw_networkx_labels(self.G, self.node_positions, {n: str(n) for n in self.G.nodes()}, 
+                               font_size=11, font_color="white", font_weight="bold")
 
         if self.selected_node:
             outgoing_edges = self.G.out_edges(self.selected_node)
