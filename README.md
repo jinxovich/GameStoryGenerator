@@ -1,5 +1,6 @@
 # Game Story Generator
 
+![Game Story Generator](https://i.postimg.cc/ZntWBgR7/image-2025-08-04-21-04-39.png)
 Приложение для генерации интерактивных RPG-историй с визуализацией сюжетного графа с использованием ИИ (Yandex GPT).
 
 ## Возможности
