@@ -14,8 +14,8 @@
 
 ### 1. Клонирование репозитория
 ```bash
-git clone <url-репозитория>
-cd game-story-generator
+git clone https://github.com/ValterGames-Coder/GameStoryGenerator
+cd GameStoryGenerator
 ```
 
 ### 2. Создание виртуального окружения
