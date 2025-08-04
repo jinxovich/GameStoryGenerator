@@ -1,227 +1,170 @@
 import aiohttp
-import asyncio
-from config import YANDEX_ID_KEY, YANDEX_API_KEY
 import json
 import re
 
-async def get(story_object) -> dict:
-    try:
-        prompt = {
-            "modelUri": f"gpt://{YANDEX_ID_KEY}/yandexgpt-lite",
-            "completionOptions": {
-                "stream": False,
-                "temperature": 0.7,
-                "maxTokens": "10000"
-            },
-            "messages": [
-                {
-                    "role": "system",
-                    "text": """Ты профессиональный сценарист, специализирующийся на интерактивных квестах. 
-                    Создай увлекательный ПОЛНОСТЬЮ ВЗАИМОСВЯЗАННЫЙ нелинейный квест на основе предоставленных параметров. 
-                    
-                    КРИТИЧЕСКИ ВАЖНО:
-                    1. ВСЕ сцены должны быть доступны через выборы из других сцен
-                    2. Создай МИНИМУМ 5-12 сцен с разветвлениями
-                    3. Должно быть минимум 2 различных концовки
-                    4. Каждый выбор должен иметь КРАТКОЕ но ОСМЫСЛЕННОЕ название (2-4 слова)
-                    5. НЕ должно быть "висячих" сцен, до которых нельзя добраться
-                    
-                    Результат должен быть ТОЛЬКО в формате JSON без дополнительных объяснений или форматирования markdown."""
-                },
-                {
-                    "role": "user",
-                    "text": f"""Создай интерактивный квест в жанре {story_object.genre} со следующими параметрами:
-                    Основное описание: {story_object.description}
-                    Главные герои: {', '.join(story_object.heroes)}
-                    Стиль повествования: {story_object.narrative_style}
-                    Настроение: {story_object.mood}
-                    Тема: {story_object.theme}
-                    Основной конфликт: {story_object.conflict}
-                    """ + 
-                    """ОБЯЗАТЕЛЬНЫЕ ТРЕБОВАНИЯ:
-                    1. Минимум 5-12 взаимосвязанных сцен
-                    2. Минимум 2 концовки (хорошая, плохая)
-                    3. Каждая сцена должна быть доступна через выборы
-                    4. Названия выборов: краткие и понятные (2-4 слова)
-                    5. Насыщенные описания сцен (100-200 слов каждая)
-                    
-                    Верни ТОЛЬКО валидный JSON в следующем формате:
-                    {
-                        "title": "Название квеста",
-                        "description": "Общее описание квеста",
-                        "start_scene": "начальная_сцена",
-                        "scenes": {
-                            "scene_id_1": {
-                                "text": "Описание сцены",
-                                "choices": [
-                                    {
-                                        "text": "Выбор 1",
-                                        "next_scene": "scene_id_2"
-                                    },
-                                    {
-                                        "text": "Выбор 2",
-                                        "next_scene": "scene_id_3"
-                                    }
-                                ]
-                            },
-                            "scene_id_2": {
-                                "text": "Описание сцены",
-                                "choices": []
-                            }
-                        }
-                    }"""
-                }
-            ]
-        }
+from config import YANDEX_ID_KEY, YANDEX_API_KEY
+from StoryObject import StoryObject
 
-        url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Api-Key {YANDEX_API_KEY}"
-        }
-
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=prompt) as response:
-                response.raise_for_status()
-                
-                response_text = await response.text()
-                print("Raw response:", response_text)
-                
-                try:
-                    # First try to parse the full response
-                    result = json.loads(response_text)
-                    generated_text = result["result"]["alternatives"][0]["message"]["text"]
-                except (json.JSONDecodeError, KeyError):
-                    # If that fails, maybe we got the raw JSON directly
-                    generated_text = response_text
-                
-                print("Generated text:", generated_text)
-                
-                # Clean the response text
-                cleaned_text = clean_json_response(generated_text)
-                print("Cleaned text:", cleaned_text)
-
-                # Try to parse the cleaned JSON
-                try:
-                    quest_json = json.loads(cleaned_text)
-                except json.JSONDecodeError as e:
-                    print(f"Failed to parse JSON: {e}")
-                    # Try to find the JSON part in the text
-                    json_start = cleaned_text.find('{')
-                    json_end = cleaned_text.rfind('}') + 1
-                    if json_start != -1 and json_end != -1:
-                        quest_json = json.loads(cleaned_text[json_start:json_end])
-                    else:
-                        raise
-
-                converted_story = convert_to_old_format(quest_json)
-                
-                return converted_story
-                
-    except aiohttp.ClientError as e:
-        print(f"HTTP request error: {e}")
-        return None
-    except json.JSONDecodeError as e:
-        print(f"JSON decode error: {e}")
-        print(f"Problematic text: {cleaned_text if 'cleaned_text' in locals() else 'N/A'}")
-        return None
-    except KeyError as e:
-        print(f"Key error in response: {e}")
-        print(f"Response structure: {result if 'result' in locals() else 'N/A'}")
-        return None
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-        return None
-
-def convert_to_old_format(quest_data):
-    try:
-        scenes_list = []
-        scenes_dict = quest_data.get('scenes', {})
-        
-        for scene_id, scene_data in scenes_dict.items():
-            scene = {
-                'id': scene_data.get('scene_id', scene_id),
-                'title': extract_title_from_text(scene_data.get('text', ''), scene_id),
-                'description': scene_data.get('text', ''),
-                'characters': extract_characters_from_text(scene_data.get('text', '')),
-                'choices': [],
-                'is_ending': len(scene_data.get('choices', [])) == 0
-            }
-            
-            for choice in scene_data.get('choices', []):
-                scene['choices'].append({
-                    'text': choice.get('text', ''),
-                    'next_scene_id': choice.get('next_scene', '')
-                })
-            
-            scenes_list.append(scene)
-        
-        converted = {
-            'title': quest_data.get('title', 'Интерактивная история'),
-            'description': quest_data.get('description', ''),
-            'genre': 'Интерактивный квест',
-            'mood': 'Увлекательный',
-            'scenes': scenes_list,
-            'main_branch': [],
-            'alternative_branches': []
-        }
-
-        start_scene = quest_data.get('start_scene')
-        if start_scene and start_scene in scenes_dict:
-            main_path = []
-            current_scene = start_scene
-            visited = set()
-            
-            while current_scene and current_scene not in visited and current_scene in scenes_dict:
-                main_path.append(current_scene)
-                visited.add(current_scene)
-                
-                choices = scenes_dict[current_scene].get('choices', [])
-                if choices:
-                    current_scene = choices[0].get('next_scene')
-                else:
-                    break
-            
-            converted['main_branch'] = main_path
-        
-        return converted
-        
-    except Exception as e:
-        print(f"Error converting quest format: {e}")
-        return quest_data
-
-def extract_title_from_text(text, fallback_id):
-    """Извлекает заголовок из первых слов текста"""
-    if not text:
-        return fallback_id
-    
-    words = text.split()[:3]
-    title = ' '.join(words)
-    if len(title) > 20:
-        title = title[:17] + "..."
-    return title if title else fallback_id
-
-def extract_characters_from_text(text):
-    import re
-    names = re.findall(r'\b[А-ЯA-Z][а-яa-z]+\b', text)
-    common_words = {'Вы', 'Ваш', 'Ваша', 'Вас', 'Они', 'Он', 'Она', 'Это', 'Там', 'Тут'}
-    names = [name for name in names if name not in common_words]
-    return list(set(names))[:3]
-
-def clean_json_response(text):
+def clean_json_response(text: str) -> str:
+    """
+    Очищает и исправляет ответ от AI, удаляя лишние символы и вставляя
+    недостающие запятые между объектами в JSON-массиве.
+    """
+    # Удаление markdown-блоков ```json и ```
     text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.MULTILINE)
     text = re.sub(r'\s*```$', '', text, flags=re.MULTILINE)
-    
     text = text.strip()
     
-    if not text.startswith('{'):
-        start_index = text.find('{')
-        if start_index != -1:
-            text = text[start_index:]
+    # Поиск первого '[' и последнего ']' для извлечения массива
+    start = text.find('[')
+    end = text.rfind(']')
     
-    if not text.endswith('}'):
-        end_index = text.rfind('}')
-        if end_index != -1:
-            text = text[:end_index + 1]
+    if start == -1 or end == -1 or end <= start:
+        raise json.JSONDecodeError("Не удалось найти валидный JSON-массив в ответе.", text, 0)
+        
+    # Извлекаем содержимое массива
+    content = text[start+1:end].strip()
     
-    return text
+    # **Ключевое исправление**: Вставляем запятые между объектами.
+    # Заменяем "}\s*{" на "}, {". Это исправляет ошибку отсутствия запятой.
+    fixed_content = re.sub(r'\}\s*\{', '}, {', content, flags=re.DOTALL)
+    
+    # Собираем исправленный JSON-массив
+    return f"[{fixed_content}]"
+
+def convert_ai_array_to_graph_format(scene_list: list[dict], story_object: StoryObject) -> dict:
+    """
+    Собирает единый объект истории из списка сцен, полученных от AI.
+    """
+    if not scene_list:
+        raise ValueError("AI вернул пустой список сцен.")
+        
+    all_scene_ids = {scene['scene_id'] for scene in scene_list if 'scene_id' in scene}
+    referenced_ids = set()
+    for scene in scene_list:
+        for choice in scene.get('choices', []):
+            if 'next_scene' in choice and choice['next_scene'] in all_scene_ids:
+                referenced_ids.add(choice['next_scene'])
+            
+    # Стартовая сцена — это та, на которую не ссылается ни одна другая сцена.
+    start_scene_ids = all_scene_ids - referenced_ids
+    
+    if not start_scene_ids:
+        # В случае ошибки или цикла, предполагаем, что сцена "1" является стартовой
+        start_scene_id = "1"
+        if start_scene_id not in all_scene_ids:
+            raise ValueError("Не удалось определить стартовую сцену, и сцена '1' отсутствует.")
+    else:
+        start_scene_id = list(start_scene_ids)[0]
+        
+    # Форматирование сцен в формат, который использует остальное приложение.
+    formatted_scenes = []
+    for scene_data in scene_list:
+        scene_id = scene_data['scene_id']
+        formatted_scenes.append({
+            'id': scene_id,
+            'title': scene_data.get('title', f"Сцена {scene_id}"),
+            'description': scene_data.get('text', 'Описание отсутствует.'),
+            'choices': [{
+                'text': c.get('text', '...'),
+                'next_scene_id': c.get('next_scene', '')
+            } for c in scene_data.get('choices', [])],
+            'is_ending': not scene_data.get('choices')
+        })
+        
+    # Сборка финального объекта для GUI и графа.
+    return {
+        'title': f"RPG: {story_object.genre}",
+        'description': story_object.description,
+        'start_scene': start_scene_id,
+        'scenes': formatted_scenes
+    }
+
+async def get_story_from_ai(story_object: StoryObject) -> dict:
+    """Асинхронно запрашивает историю у YandexGPT и возвращает ее в виде словаря."""
+    if not YANDEX_API_KEY or not YANDEX_ID_KEY:
+        raise ValueError("YANDEX_API_KEY и YANDEX_ID_KEY должны быть установлены в .env файле.")
+
+    prompt = {
+        "modelUri": f"gpt://{YANDEX_ID_KEY}/yandexgpt-lite",
+        "completionOptions": {
+            "stream": False,
+            "temperature": 0.75, # Немного увеличена для разнообразия
+            "maxTokens": "16000" # Увеличен запас токенов
+        },
+        "messages": [
+            {
+                "role": "system",
+                "text": """Ты — профессиональный сценарист для RPG.
+                Твоя задача — сгенерировать ЕДИНЫЙ JSON-МАССИВ, где каждый элемент — это одна сцена квеста.
+                
+                КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА:
+                1.  **ФОРМАТ ВЫВОДА**: Верни ТОЛЬКО валидный JSON-массив `[ ... ]`. Без комментариев и markdown.
+                2.  **СТРУКТУРА ОБЪЕКТА**: Каждый объект в массиве должен иметь СТРОГУЮ структуру:
+                    {
+                      "scene_id": "НОМЕР_СЦЕНЫ_В_ВИДЕ_СТРОКИ",
+                      "text": "Полное, насыщенное описание сцены (80-150 слов).",
+                      "choices": [
+                        {"text": "Краткое описание выбора (2-5 слов)", "next_scene": "НОМЕР_СЛЕДУЮЩЕЙ_СЦЕНЫ"}
+                      ]
+                    }
+                3.  **ЗАПЯТЫЕ**: Между КАЖДЫМ объектом в массиве (например, между `}` и `{`) ДОЛЖНА стоять запятая.
+                
+                СТРОГИЕ СТРУКТУРНЫЕ ОГРАНИЧЕНИЯ:
+                - **ID СЦЕН**: `scene_id` — это **ЧИСЛО В ВИДЕ СТРОКИ** (например, "1", "2", "3"). Стартовая сцена **ВСЕГДА** имеет `scene_id: "1"`.
+                - **ЗАПРЕТ НА ВОЗВРАТ К НАЧАЛУ**: Никакой `next_scene` не должен ссылаться на `"1"`.
+                - **ЗАПРЕТ НА ДВИЖЕНИЕ ВВЕРХ**: Сцена с большим `scene_id` **НЕ МОЖЕТ** ссылаться на сцену с меньшим `scene_id`. Например, выбор в сцене `"5"` не может вести в `"3"`. Движение только вперед!
+                
+                ТРЕБОВАНИЯ К КОНТЕНТУ:
+                -   **Жанр**: Строго Ролевая игра (RPG).
+                -   **Язык**: Русский.
+                -   **Количество сцен**: От 5 до 10.
+                -   **ДВЕ КОНЦОВКИ**: Обязательно создай минимум две разные концовки (сцены с `choices: []`). Одна концовка должна быть условно "хорошей", а другая — "плохой".
+                -   **Ветвление**: Обязательно создай минимум одну развилку. Хотя бы одна ветка сюжета (последовательность из 2-3 сцен после выбора) должна приводить к уникальному результату.
+                -   **Связность**: ВСЕ сцены, кроме стартовой (`"1"`), должны быть достижимы. Не должно быть "висячих" сцен.
+                """
+            },
+            {
+                "role": "user",
+                "text": f"""Создай RPG квест по параметрам:
+                - **Описание**: {story_object.description}
+                - **Персонажи**: {', '.join(story_object.heroes)}
+                - **Настроение**: {story_object.mood}
+                - **Тема**: {story_object.theme}
+                - **Конфликт**: {story_object.conflict}
+
+                Напоминаю: единый JSON-массив, `scene_id` - это числа, движение сюжета только вперед, 2 концовки (хорошая/плохая).
+                """
+            }
+        ]
+    }
+
+    url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Api-Key {YANDEX_API_KEY}"
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=prompt, timeout=120) as response:
+                response.raise_for_status()
+                raw_response = await response.text()
+                
+                try:
+                    result_data = json.loads(raw_response)
+                    generated_text = result_data["result"]["alternatives"][0]["message"]["text"]
+                except (json.JSONDecodeError, KeyError):
+                    generated_text = raw_response
+
+                cleaned_json_text = clean_json_response(generated_text)
+                scene_list = json.loads(cleaned_json_text)
+                
+                return convert_ai_array_to_graph_format(scene_list, story_object)
+
+    except aiohttp.ClientError as e:
+        raise ConnectionError(f"Ошибка сети при обращении к AI: {e}")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"AI вернул некорректный JSON, который не удалось исправить. Ошибка: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Неожиданная ошибка при работе с AI: {e}")

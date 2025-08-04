@@ -1,0 +1,60 @@
+{
+  "title": "RPG: RPG",
+  "description": "Украсть пельмени",
+  "start_scene": "start",
+  "scenes": [
+    {
+      "id": "start",
+      "title": "Сцена start",
+      "description": "Вы оказались в трущобах, где царит бедность и голод. Бомж по имени Макс просит вас украсть пельмени из местной столовой, чтобы выжить. Вы решаете помочь ему.",
+      "choices": [
+        {
+          "text": "Согласиться",
+          "next_scene_id": "steal_pelmeni"
+        },
+        {
+          "text": "Отказаться",
+          "next_scene_id": "refuse_max"
+        }
+      ],
+      "is_ending": false
+    },
+    {
+      "id": "steal_pelmeni",
+      "title": "Сцена steal_pelmeni",
+      "description": "Вы пробираетесь к столовой, где вкусно пахнет пельменями. Охранник не замечает вас, но вам нужно быстро достать еду и уйти. Вы достаёте пельмени из кухни и прячете их под плащом.",
+      "choices": [
+        {
+          "text": "Сбежать",
+          "next_scene_id": "escape_scene"
+        },
+        {
+          "text": "Отдать пельмени Максу",
+          "next_scene_id": "give_max_pelmeni"
+        }
+      ],
+      "is_ending": false
+    },
+    {
+      "id": "escape_scene",
+      "title": "Сцена escape_scene",
+      "description": "Вы быстро уходите из трущоб, оставив пельмени для Макса. Он благодарит вас, и вы решаете продолжить свой путь.",
+      "choices": [],
+      "is_ending": true
+    },
+    {
+      "id": "give_max_pelmeni",
+      "title": "Сцена give_max_pelmeni",
+      "description": "Вы отдаёте пельмени Максу, и он делится с вами частью своей еды. Вы чувствуете благодарность и решаете помочь ему в будущем.",
+      "choices": [],
+      "is_ending": true
+    },
+    {
+      "id": "refuse_max",
+      "title": "Сцена refuse_max",
+      "description": "Вы отказываете Максу в просьбе, и он разочарованно уходит. Вы продолжаете свой путь, но чувствуете, что упустили шанс помочь кому-то.",
+      "choices": [],
+      "is_ending": true
+    }
+  ]
+}
