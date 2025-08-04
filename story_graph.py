@@ -9,7 +9,6 @@ from PyQt5.QtGui import QCursor
 import matplotlib.patches as mpatches
 
 class SceneDetailDialog(QDialog):
-    """Диалоговое окно для отображения ДЕТАЛЬНОГО ОПИСАНИЯ сцены."""
     def __init__(self, scene_data, parent=None):
         super().__init__(parent)
         self.scene_data = scene_data
@@ -47,7 +46,6 @@ class SceneDetailDialog(QDialog):
 
 
 class StoryGraph(FigureCanvas):
-    """Виджет для отрисовки графа с подписями выборов по клику на узел."""
     def __init__(self, parent=None):
         self.fig, self.ax = plt.subplots(figsize=(12, 10), facecolor='#1e1e2d')
         super().__init__(self.fig)
@@ -58,16 +56,18 @@ class StoryGraph(FigureCanvas):
         self.selected_node = None
         self.hovered_edge = None
         self.edge_paths = {}
+        self.press = None
 
         self.draw_empty_graph("Ожидание генерации истории...")
 
         self.fig.canvas.mpl_connect('button_press_event', self.on_click)
         self.fig.canvas.mpl_connect('motion_notify_event', self.on_hover)
-        # --- НОВЫЙ КОД: ПОДКЛЮЧЕНИЕ СОБЫТИЯ МАСШТАБИРОВАНИЯ ---
-        self.fig.canvas.mpl_connect('scroll_event', self.on_scroll)
+        #self.fig.canvas.mpl_connect('scroll_event', self.on_scroll)
+        self.fig.canvas.mpl_connect('button_press_event', self.on_press)
+        self.fig.canvas.mpl_connect('button_release_event', self.on_release)
+        # self.fig.canvas.mpl_connect('motion_notify_event', self.on_motion)
 
     def on_scroll(self, event):
-        """Обрабатывает масштабирование графа колесиком мыши."""
         if not event.inaxes:
             return
 
@@ -77,10 +77,10 @@ class StoryGraph(FigureCanvas):
         xdata = event.xdata
         ydata = event.ydata
 
-        if event.button == 'up': # Приближение
+        if event.button == 'up':
             new_width = (cur_xlim[1] - cur_xlim[0]) / scale_factor
             new_height = (cur_ylim[1] - cur_ylim[0]) / scale_factor
-        elif event.button == 'down': # Отдаление
+        elif event.button == 'down':
             new_width = (cur_xlim[1] - cur_xlim[0]) * scale_factor
             new_height = (cur_ylim[1] - cur_ylim[0]) * scale_factor
         else:
@@ -92,6 +92,30 @@ class StoryGraph(FigureCanvas):
         self.ax.set_xlim([xdata - new_width * rel_x, xdata + new_width * (1 - rel_x)])
         self.ax.set_ylim([ydata - new_height * rel_y, ydata + new_height * (1 - rel_y)])
         self.draw()
+
+    def on_press(self, event):
+        if event.inaxes != self.ax:
+            return
+        self.press = (self.ax.get_xlim(), self.ax.get_ylim(), event.xdata, event.ydata)
+        self.ax.figure.canvas.draw()
+
+    # def on_motion(self, event):
+        # if self.press is None:
+        #     return
+        # if event.inaxes != self.ax:
+        #     return
+        
+        # xlim, ylim, xpress, ypress = self.press
+        # dx = event.xdata - xpress
+        # dy = event.ydata - ypress
+        
+        # self.ax.set_xlim(xlim[0] - dx, xlim[1] - dx)
+        # self.ax.set_ylim(ylim[0] - dy, ylim[1] - dy)
+        # self.ax.figure.canvas.draw()
+
+    def on_release(self, event):
+        self.press = None
+        self.ax.figure.canvas.draw()
 
     def draw_empty_graph(self, message):
         self.ax.clear()
@@ -181,7 +205,6 @@ class StoryGraph(FigureCanvas):
         self.node_positions = self._custom_hierarchical_layout()
 
         if self.node_positions:
-            # Устанавливаем границы по умолчанию при первой отрисовке
             if self.ax.get_xlim() == (0.0, 1.0) and self.ax.get_ylim() == (0.0, 1.0):
                 x_coords, y_coords = zip(*self.node_positions.values())
                 x_margin = (max(x_coords) - min(x_coords)) * 0.1
@@ -195,7 +218,6 @@ class StoryGraph(FigureCanvas):
         end_nodes = [n for n, d in self.G.out_degree() if d == 0]
         node_colors = ['#51cf66' if n == start_node else '#ff6b6b' if n in end_nodes else '#4dabf7' for n in self.G.nodes()]
 
-        # Сначала рисуем ребра с четкими направленными стрелками
         self.edge_paths.clear()
         for edge in self.G.edges():
             source, target = edge
@@ -205,22 +227,20 @@ class StoryGraph(FigureCanvas):
             edge_color = '#FFD700' if edge == self.hovered_edge else '#aaaaaa'
             edge_width = 3.0 if edge == self.hovered_edge else 2.0
 
-            # Создаем направленную стрелку с четким наконечником
             arrow = mpatches.FancyArrowPatch(
                 posA=pos_s, posB=pos_t, 
                 connectionstyle=f"arc3,rad=0.1",
                 color=edge_color, 
                 linewidth=edge_width, 
-                arrowstyle='-|>',  # Более четкий стиль стрелки
-                mutation_scale=30,  # Увеличенный размер наконечника
-                shrinkA=30,  # Отступ от исходной ноды (радиус узла + отступ)
-                shrinkB=30,  # Отступ до целевой ноды
+                arrowstyle='-|>',
+                mutation_scale=30,
+                shrinkA=30,
+                shrinkB=30,
                 alpha=0.8
             )
             self.ax.add_patch(arrow)
             self.edge_paths[edge] = arrow.get_path().vertices
 
-        # Рисуем узлы поверх ребер
         nx.draw_networkx_nodes(self.G, self.node_positions, ax=self.ax, node_size=2500, 
                               node_color=node_colors, edgecolors="white", linewidths=1.5)
         nx.draw_networkx_labels(self.G, self.node_positions, {n: str(n) for n in self.G.nodes()}, 
@@ -252,7 +272,7 @@ class StoryGraph(FigureCanvas):
             mid_point = ((pos_u[0] + pos_v[0]) / 2, (pos_u[1] + pos_v[1]) / 2)
             dist_sq = (mid_point[0] - x)**2 + (mid_point[1] - y)**2
 
-            if dist_sq < 0.5 and dist_sq < min_distance_sq:
+            if dist_sq < 0.1 and dist_sq < min_distance_sq:
                 min_distance_sq = dist_sq
                 hovered_edge = edge
 
@@ -278,7 +298,7 @@ class StoryGraph(FigureCanvas):
                 min_dist_sq = dist_sq
                 clicked_node = node
 
-        if min_dist_sq < 1.0:
+        if min_dist_sq < 0.5:
             if self.selected_node == clicked_node:
                 scene = next((s for s in self.story_data['scenes'] if s['id'] == clicked_node), None)
                 if scene:

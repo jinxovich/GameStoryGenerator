@@ -55,7 +55,6 @@ class MainWindow(QWidget):
 
         # Заголовки
         left_layout.addWidget(QLabel("Game Story Generator", objectName="header"))
-        left_layout.addWidget(QLabel("Создание историй с помощью ИИ", objectName="subtitle"))
 
         # Поля ввода
         self.desc_input = self._create_labeled_widget(QTextEdit, "Описание истории:", 150)
